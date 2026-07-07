@@ -1,0 +1,20 @@
+{
+  "name": "whatsapp-attendance-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp attendance bot using Twilio + Google Sheets",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "node --test test/*.test.js",
+    "check": "node --check index.js && node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "googleapis": "^173.0.0",
+    "twilio": "^6.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
