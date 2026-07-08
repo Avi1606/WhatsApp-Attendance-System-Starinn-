@@ -100,6 +100,21 @@ class AttendanceStore {
     return -1;
   }
   
+  findOpenInRowForDate(rows, employee, dateKey) {
+    for (let index = this.dataStart(rows); index < rows.length; index += 1) {
+      const row = rows[index];
+      if (
+        this.rowMatchesEmployee(row, employee) &&
+        normalizeDate(row[1]) === dateKey &&
+        row[2] &&
+        !row[3]
+      ) {
+        return index;
+      }
+    }
+    return -1;
+  }
+  
   async getSheetId() {
     if (this.sheetId !== null) return this.sheetId;
 
@@ -173,7 +188,7 @@ class AttendanceStore {
 
       let rowIndex = this.findAttendanceRow(rows, employee, dateKey);
       if (rowIndex === -1 && action === "OUT") {
-        rowIndex = this.findLatestOpenInRow(rows, employee);
+        rowIndex = this.findOpenInRowForDate(rows, employee, dateKey);
       }
       
       if (rowIndex === -1) {
