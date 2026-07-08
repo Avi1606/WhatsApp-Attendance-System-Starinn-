@@ -252,6 +252,9 @@ function createApp({
       }
 
       const result = await handler();
+      if (req.query.quiet === "1") {
+        return res.status(204).send();
+      }
       return res.json({ ok: true, result });
     } catch (error) {
       return next(error);
