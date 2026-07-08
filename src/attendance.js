@@ -16,6 +16,10 @@ function isHeader(row) {
   return first === "name" || first === "employee name";
 }
 
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 class AttendanceStore {
   constructor({ sheets, spreadsheetId, sheetName, cacheTtlMs = 5000 }) {
     this.sheets = sheets;
@@ -67,7 +71,11 @@ class AttendanceStore {
   }
 
   rowMatchesEmployee(row, employee) {
-    return row[5] ? row[5] === employee.id : row[0] === employee.name;
+    const rowEmployeeId = normalizeText(row[5]);
+    const employeeId = normalizeText(employee.id);
+    if (rowEmployeeId && employeeId) return rowEmployeeId === employeeId;
+
+    return normalizeText(row[0]) === normalizeText(employee.name);
   }
 
   findAttendanceRow(rows, employee, dateKey) {
