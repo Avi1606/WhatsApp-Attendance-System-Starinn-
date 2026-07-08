@@ -90,6 +90,16 @@ class AttendanceStore {
     return -1;
   }
 
+  findLatestOpenInRow(rows, employee) {
+    for (let index = this.dataStart(rows); index < rows.length; index += 1) {
+      const row = rows[index];
+      if (this.rowMatchesEmployee(row, employee) && row[2] && !row[3]) {
+        return index;
+      }
+    }
+    return -1;
+  }
+  
   async getSheetId() {
     if (this.sheetId !== null) return this.sheetId;
 
@@ -161,7 +171,11 @@ class AttendanceStore {
         }
       }
 
-      const rowIndex = this.findAttendanceRow(rows, employee, dateKey);
+      let rowIndex = this.findAttendanceRow(rows, employee, dateKey);
+      if (rowIndex === -1 && action === "OUT") {
+        rowIndex = this.findLatestOpenInRow(rows, employee);
+      }
+      
       if (rowIndex === -1) {
         if (action === "OUT") return { ok: false, reason: "out_before_in" };
 
