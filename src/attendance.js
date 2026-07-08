@@ -1,6 +1,6 @@
 "use strict";
 
-const { normalizeDate } = require("./time");
+const { normalizeDate, normalizeMonthFirstDate, sheetDateMatches } = require("./time");
 
 const HEADER = ["Name", "Date", "IN", "OUT", "Status", "Employee ID", "Last Message SID"];
 const ACTIONS = new Set(["IN", "OUT"]);
@@ -79,15 +79,19 @@ class AttendanceStore {
   }
 
   findAttendanceRow(rows, employee, dateKey) {
+    let fallbackIndex = -1;
+
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       if (
         this.rowMatchesEmployee(rows[index], employee) &&
-        normalizeDate(rows[index][1]) === dateKey
+        sheetDateMatches(rows[index][1], dateKey)
       ) {
-        return index;
+        if (fallbackIndex === -1) fallbackIndex = index;
+        if (rows[index][2] || rows[index][3]) return index;
       }
     }
-    return -1;
+
+    return fallbackIndex;
   }
 
   findLatestOpenInRow(rows, employee) {
@@ -99,13 +103,13 @@ class AttendanceStore {
     }
     return -1;
   }
-  
+
   findOpenInRowForDate(rows, employee, dateKey) {
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       const row = rows[index];
       if (
         this.rowMatchesEmployee(row, employee) &&
-        normalizeDate(row[1]) === dateKey &&
+        sheetDateMatches(row[1], dateKey) &&
         row[2] &&
         !row[3]
       ) {
@@ -114,7 +118,7 @@ class AttendanceStore {
     }
     return -1;
   }
-  
+
   async getSheetId() {
     if (this.sheetId !== null) return this.sheetId;
 
@@ -190,7 +194,7 @@ class AttendanceStore {
       if (rowIndex === -1 && action === "OUT") {
         rowIndex = this.findOpenInRowForDate(rows, employee, dateKey);
       }
-      
+
       if (rowIndex === -1) {
         if (action === "OUT") return { ok: false, reason: "out_before_in" };
 
@@ -261,15 +265,15 @@ class AttendanceStore {
 
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       const row = rows[index];
-      const dateKey = normalizeDate(row[1]);
-      if (!this.rowMatchesEmployee(row, employee) || !dateKey?.startsWith(monthKey)) continue;
+      const candidateDateKey = normalizeMonthFirstDate(row[1]) || normalizeDate(row[1]);
+      if (!this.rowMatchesEmployee(row, employee) || !candidateDateKey?.startsWith(monthKey)) continue;
 
       if (row[2] && row[3]) present += 1;
       else if (row[2]) noOut += 1;
       else absent += 1;
 
       reportRows.push({
-        dateKey,
+        dateKey: candidateDateKey,
         inTime: row[2] || "",
         outTime: row[3] || "",
         status: statusFor(row[2] || "", row[3] || ""),
