@@ -54,6 +54,33 @@ function normalizeDate(value) {
   return `${year}-${month}-${day}`;
 }
 
+function normalizeMonthFirstDate(value) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+
+  const input = String(value).trim();
+  const match = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(input);
+  if (!match) return null;
+
+  let [, month, day, year] = match;
+  month = String(Number(month)).padStart(2, "0");
+  day = String(Number(day)).padStart(2, "0");
+
+  const candidate = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  if (
+    Number.isNaN(candidate.getTime()) ||
+    candidate.getUTCFullYear() !== Number(year) ||
+    candidate.getUTCMonth() + 1 !== Number(month) ||
+    candidate.getUTCDate() !== Number(day)
+  ) return null;
+
+  return `${year}-${month}-${day}`;
+}
+
+function sheetDateMatches(value, dateKey) {
+  if (String(value || "").trim() === dateKey) return true;
+  return normalizeDate(value) === dateKey || normalizeMonthFirstDate(value) === dateKey;
+}
+
 function displayDate(dateKey) {
   const normalized = normalizeDate(dateKey);
   if (!normalized) return dateKey;
@@ -61,4 +88,4 @@ function displayDate(dateKey) {
   return `${day}/${month}/${year}`;
 }
 
-module.exports = { zonedDateTime, normalizeDate, displayDate };
+module.exports = { zonedDateTime, normalizeDate, normalizeMonthFirstDate, sheetDateMatches, displayDate };
