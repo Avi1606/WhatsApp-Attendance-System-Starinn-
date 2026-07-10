@@ -2,13 +2,27 @@
 
 const { normalizeDate, normalizeMonthFirstDate, sheetDateMatches } = require("./time");
 
-const HEADER = ["Name", "Date", "IN", "OUT", "Status", "Employee ID", "Last Message SID"];
+const HEADER = ["Name", "Date", "IN", "OUT", "Status", "Employee ID", "Last Message SID", "Late"];
 const ACTIONS = new Set(["IN", "OUT"]);
+const LATE_CUTOFF = "10:15";
 
 function statusFor(inTime, outTime) {
   if (inTime && outTime) return "Present";
   if (inTime) return "Present (no OUT)";
   return "Absent";
+}
+
+function minutesSinceMidnight(time) {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(time || ""));
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function lateFor(inTime) {
+  const timeMinutes = minutesSinceMidnight(inTime);
+  const cutoffMinutes = minutesSinceMidnight(LATE_CUTOFF);
+  if (timeMinutes === null || cutoffMinutes === null) return "";
+  return timeMinutes > cutoffMinutes ? "Late" : "";
 }
 
 function isHeader(row) {
@@ -48,18 +62,26 @@ class AttendanceStore {
 
     const result = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: `${this.sheetName}!A:G`,
+      range: `${this.sheetName}!A:H`,
     });
     const rows = result.data.values || [];
 
     if (rows.length === 0) {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A1:G1`,
+        range: `${this.sheetName}!A1:H1`,
         valueInputOption: "RAW",
         requestBody: { values: [HEADER] },
       });
       rows.push([...HEADER]);
+    } else if (isHeader(rows[0]) && rows[0].length < HEADER.length) {
+      await this.sheets.spreadsheets.values.update({
+        spreadsheetId: this.spreadsheetId,
+        range: `${this.sheetName}!A1:H1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [HEADER] },
+      });
+      rows[0] = [...HEADER];
     }
 
     this.cache = { rows, at: Date.now() };
@@ -158,7 +180,7 @@ class AttendanceStore {
 
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
-      range: `${this.sheetName}!A2:G${1 + rowsToInsert.length}`,
+      range: `${this.sheetName}!A2:H${1 + rowsToInsert.length}`,
       valueInputOption: "RAW",
       requestBody: { values: rowsToInsert },
     });
@@ -198,7 +220,7 @@ class AttendanceStore {
       if (rowIndex === -1) {
         if (action === "OUT") return { ok: false, reason: "out_before_in" };
 
-        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid];
+        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid, lateFor(time)];
         await this.insertRowsAtTop([row]);
         this.invalidate();
         return { ok: true, action };
@@ -226,11 +248,12 @@ class AttendanceStore {
         statusFor(newIn, newOut),
         employee.id,
         messageSid,
+        lateFor(newIn),
       ];
 
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A${rowIndex + 1}:G${rowIndex + 1}`,
+        range: `${this.sheetName}!A${rowIndex + 1}:H${rowIndex + 1}`,
         valueInputOption: "RAW",
         requestBody: { values: [updated] },
       });
@@ -323,7 +346,7 @@ class AttendanceStore {
       for (const [id, name] of Object.entries(employees)) {
         const employee = { id, name };
         if (this.findAttendanceRow(rows, employee, dateKey) === -1) {
-          absentRows.push([name, dateKey, "", "", statusFor("", ""), id, ""]);
+          absentRows.push([name, dateKey, "", "", statusFor("", ""), id, "", ""]);
         }
       }
 
@@ -337,4 +360,4 @@ class AttendanceStore {
   }
 }
 
-module.exports = { AttendanceStore, statusFor, HEADER };
+module.exports = { AttendanceStore, statusFor, lateFor, HEADER };
