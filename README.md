@@ -20,27 +20,20 @@ Express service for marking employee attendance from WhatsApp messages through T
    npm install
    ```
 
-2. Copy the examples:
-
-   ```powershell
-   Copy-Item .env.example .env
-   Copy-Item config.example.json config.json
-   ```
-
-   The app also supports `password.env` as a fallback if you prefer that filename.
-
-3. Fill in:
+2. Create your local secret files:
 
    - `config.json` with employee WhatsApp numbers, names, Sheet ID, admin number, and Twilio sender.
-   - `.env` with Twilio credentials, `CRON_SECRET`, and Google credentials path.
+   - `.env` or `password.env` with Twilio credentials, `CRON_SECRET`, and Google credentials path.
 
-4. Google credentials:
+   These files are intentionally not uploaded to GitHub.
+
+3. Google credentials:
 
    Set `GOOGLE_APPLICATION_CREDENTIALS=./credentials.json` or point it to wherever your service-account key is stored.
 
    `credentials.json` is intentionally git-ignored. If this key was ever committed or shared, rotate it in Google Cloud.
 
-5. Start locally:
+4. Start locally:
 
    ```bash
    npm start
@@ -125,17 +118,30 @@ Suggested schedule in `Asia/Kolkata`:
 
 Each job is also guarded in-process so the same job/date is skipped if the same server instance receives duplicate scheduler calls.
 
+For external schedulers, you can add `?quiet=1` to return no response body:
+
+```text
+POST /jobs/auto-absent?quiet=1
+```
+
+This helps avoid scheduler errors such as "response data too long".
+
 ## Google Sheet schema
 
 The bot uses columns `A:G`:
 
 ```text
-Name | Date | IN | OUT | Status | Employee ID | Last Message SID
+Name | Date | IN | OUT | Status | Employee ID | Last Message SID | Day Type
 ```
 
 Older rows with only `A:E` still work by matching employee name, but new writes include Employee ID and Message SID.
 
 New attendance rows are inserted directly below the header at row 2, so the newest record stays at the top.
+
+`Day Type` is marked as `Half Day` when:
+
+- IN is after `11:00`
+- or OUT is before `17:00`
 
 ## Testing auto replies locally
 

@@ -2,9 +2,10 @@
 
 const { normalizeDate, normalizeMonthFirstDate, sheetDateMatches } = require("./time");
 
-const HEADER = ["Name", "Date", "IN", "OUT", "Status", "Employee ID", "Last Message SID", "Late"];
+const HEADER = ["Name", "Date", "IN", "OUT", "Status", "Employee ID", "Last Message SID", "Day Type"];
 const ACTIONS = new Set(["IN", "OUT"]);
-const LATE_CUTOFF = "10:15";
+const HALF_DAY_IN_AFTER = "11:00";
+const HALF_DAY_OUT_BEFORE = "17:00";
 
 function statusFor(inTime, outTime) {
   if (inTime && outTime) return "Present";
@@ -18,11 +19,15 @@ function minutesSinceMidnight(time) {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-function lateFor(inTime) {
-  const timeMinutes = minutesSinceMidnight(inTime);
-  const cutoffMinutes = minutesSinceMidnight(LATE_CUTOFF);
-  if (timeMinutes === null || cutoffMinutes === null) return "";
-  return timeMinutes > cutoffMinutes ? "Late" : "";
+function dayTypeFor(inTime, outTime = "") {
+  const inMinutes = minutesSinceMidnight(inTime);
+  const outMinutes = minutesSinceMidnight(outTime);
+  const inCutoff = minutesSinceMidnight(HALF_DAY_IN_AFTER);
+  const outCutoff = minutesSinceMidnight(HALF_DAY_OUT_BEFORE);
+
+  if (inMinutes !== null && inMinutes > inCutoff) return "Half Day";
+  if (outMinutes !== null && outMinutes < outCutoff) return "Half Day";
+  return "";
 }
 
 function isHeader(row) {
@@ -220,7 +225,7 @@ class AttendanceStore {
       if (rowIndex === -1) {
         if (action === "OUT") return { ok: false, reason: "out_before_in" };
 
-        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid, lateFor(time)];
+        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid, dayTypeFor(time)];
         await this.insertRowsAtTop([row]);
         this.invalidate();
         return { ok: true, action };
@@ -248,7 +253,7 @@ class AttendanceStore {
         statusFor(newIn, newOut),
         employee.id,
         messageSid,
-        lateFor(newIn),
+        dayTypeFor(newIn, newOut),
       ];
 
       await this.sheets.spreadsheets.values.update({
@@ -360,4 +365,4 @@ class AttendanceStore {
   }
 }
 
-module.exports = { AttendanceStore, statusFor, lateFor, HEADER };
+module.exports = { AttendanceStore, statusFor, dayTypeFor, HEADER };

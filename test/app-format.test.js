@@ -10,13 +10,14 @@ test("formatTime12 converts 24-hour time to readable WhatsApp time", () => {
   assert.equal(formatTime12("18:30"), "6:30 pm");
 });
 
-test("formatWelcome shows clear commands", () => {
+test("formatWelcome shows clear enabled commands", () => {
   const message = formatWelcome("Avi Kumar", { reportsEnabled: true });
 
   assert.match(message, /Hello Avi Kumar/);
   assert.match(message, /Reply \*in\* for Office IN/);
   assert.match(message, /Reply \*out\* for Office OUT/);
   assert.match(message, /Reply \*report\* for monthly report/);
+  assert.doesNotMatch(message, /status/);
 });
 
 test("formatWelcome hides report command when reports are paused", () => {
@@ -25,16 +26,16 @@ test("formatWelcome hides report command when reports are paused", () => {
   assert.doesNotMatch(message, /report/);
 });
 
-test("formatAttendanceMarked creates card-style attendance reply", () => {
+test("formatAttendanceMarked creates plain attendance reply for admin usage", () => {
   const message = formatAttendanceMarked("IN", "Avi Kumar", "07/07/2026", "11:49");
 
   assert.equal(
     message,
     [
-      "✅ Office IN marked!",
-      "👤 Avi Kumar",
-      "📅 07/07/2026",
-      "🕒 11:49 am",
+      "Office IN marked!",
+      "Employee: Avi Kumar",
+      "Date: 07/07/2026",
+      "Time: 11:49 am",
     ].join("\n"),
   );
 });

@@ -2,11 +2,18 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { displayDate, normalizeDate, zonedDateTime } = require("../src/time");
+const { displayDate, normalizeDate, normalizeMonthFirstDate, sheetDateMatches, zonedDateTime } = require("../src/time");
 
 test("normalizeDate accepts ISO and Indian display dates", () => {
   assert.equal(normalizeDate("2026-07-06"), "2026-07-06");
   assert.equal(normalizeDate("06/07/2026"), "2026-07-06");
+  assert.equal(normalizeDate("6/7/2026"), "2026-07-06");
+  assert.equal(normalizeDate("6-7-2026"), "2026-07-06");
+});
+
+test("sheetDateMatches accepts Google Sheets month/day display for current date matching", () => {
+  assert.equal(normalizeMonthFirstDate("07/08/2026"), "2026-07-08");
+  assert.equal(sheetDateMatches("07/08/2026", "2026-07-08"), true);
 });
 
 test("normalizeDate rejects impossible and malformed dates", () => {

@@ -1,7 +1,7 @@
 "use strict";
 
 function parseRow(range) {
-  const match = /!A(\d+):G\d+$/.exec(range);
+  const match = /!A(\d+):[A-Z]+(\d+)$/.exec(range);
   return match ? Number(match[1]) - 1 : null;
 }
 
