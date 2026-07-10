@@ -22,6 +22,10 @@ function twiml(message) {
   return response.toString();
 }
 
+function emptyTwiml() {
+  return new twilio.twiml.MessagingResponse().toString();
+}
+
 function createSendMessage({ twilioClient, fromNumber, logger = console }) {
   return async function sendMessage(to, body) {
     const message = await twilioClient.messages.create({
@@ -68,15 +72,14 @@ function formatTime12(time24) {
 
 function formatWelcome(employeeName, { isAdmin = false, reportsEnabled = false } = {}) {
   const lines = [
-    `👋 Hello ${employeeName}!`,
+    `Hello ${employeeName}!`,
     "",
-    "Reply *in* for Office IN ✅",
-    "Reply *out* for Office OUT 🚪",
-    "Reply *status* to check today 📌",
+    "Reply *in* for Office IN",
+    "Reply *out* for Office OUT",
   ];
 
   if (reportsEnabled) {
-    lines.push("Reply *report* for monthly report 📊");
+    lines.push("Reply *report* for monthly report");
   }
 
   if (isAdmin) {
@@ -91,19 +94,18 @@ function formatWelcome(employeeName, { isAdmin = false, reportsEnabled = false }
 }
 
 function formatAttendanceMarked(action, employeeName, displayDateValue, time) {
-  const isIn = action === "IN";
   return [
-    `${isIn ? "✅" : "🚪"} Office ${action} marked!`,
-    `👤 ${employeeName}`,
-    `📅 ${displayDateValue}`,
-    `🕒 ${formatTime12(time)}`,
+    `Office ${action} marked!`,
+    `Employee: ${employeeName}`,
+    `Date: ${displayDateValue}`,
+    `Time: ${formatTime12(time)}`,
   ].join("\n");
 }
 
 function formatAlreadyMarked(action, time) {
   return [
-    `ℹ️ Office ${action} already marked for today.`,
-    time ? `🕒 ${formatTime12(time)}` : "",
+    `Office ${action} already marked for today.`,
+    time ? `Time: ${formatTime12(time)}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -112,16 +114,16 @@ function formatAlreadyMarked(action, time) {
 function formatStatus(status) {
   if (!status.exists) {
     return [
-      "📌 Today's Attendance",
+      "Today's Attendance",
       "",
       "No attendance marked yet.",
       "Reply *in* when you arrive.",
     ].join("\n");
   }
 
-  const lines = ["📌 Today's Attendance", "", `Status: *${status.status}*`];
-  if (status.inTime) lines.push(`✅ IN: ${formatTime12(status.inTime)}`);
-  if (status.outTime) lines.push(`🚪 OUT: ${formatTime12(status.outTime)}`);
+  const lines = ["Today's Attendance", "", `Status: *${status.status}*`];
+  if (status.inTime) lines.push(`IN: ${formatTime12(status.inTime)}`);
+  if (status.outTime) lines.push(`OUT: ${formatTime12(status.outTime)}`);
   if (status.inTime && !status.outTime) lines.push("", "Reply *out* when you leave.");
 
   return lines.join("\n");
@@ -130,11 +132,11 @@ function formatStatus(status) {
 function formatMonthlyReport(report, monthKey) {
   const [year, month] = monthKey.split("-");
   const lines = [
-    `📊 Attendance Report (${month}/${year})`,
+    `Attendance Report (${month}/${year})`,
     "",
-    `✅ Present days: ${report.presentDays}`,
-    `❌ Absent days: ${report.absentDays}`,
-    `⚠️ Missed OUT days: ${report.missedOutDays}`,
+    `Present days: ${report.presentDays}`,
+    `Absent days: ${report.absentDays}`,
+    `Missed OUT days: ${report.missedOutDays}`,
   ];
 
   if (report.rows.length) {
@@ -283,7 +285,7 @@ function createApp({
         return res.send(
           twiml(
             [
-              "⚠️ You are not registered for attendance.",
+              "You are not registered for attendance.",
               "",
               "Please contact admin to add your WhatsApp number.",
             ].join("\n"),
@@ -311,23 +313,15 @@ function createApp({
           messageSid,
         });
 
-        if (result.ok) {
-          return res.send(
-            twiml(formatAttendanceMarked(result.action, employee.name, current.displayDate, current.time)),
-          );
+        if (result.ok || result.reason === "already_processed" || result.reason === "already_marked") {
+          return res.send(emptyTwiml());
         }
 
-        if (result.reason === "already_processed") {
-          return res.send(twiml("ℹ️ This WhatsApp message was already processed."));
-        }
-        if (result.reason === "already_marked") {
-          return res.send(twiml(formatAlreadyMarked(result.action, result.time)));
-        }
         if (result.reason === "out_before_in") {
           return res.send(
             twiml(
               [
-                "⚠️ Office OUT cannot be marked yet.",
+                "Office OUT cannot be marked yet.",
                 "",
                 "Please reply *in* first, then reply *out* when you leave.",
               ].join("\n"),
@@ -335,12 +329,11 @@ function createApp({
           );
         }
 
-        return res.send(twiml("⚠️ Could not mark attendance. Please try again."));
+        return res.send(twiml("Could not mark attendance. Please try again."));
       }
 
       if (lowerBody === "status") {
-        const status = await attendance.getStatus(employee, current.dateKey);
-        return res.send(twiml(formatStatus(status)));
+        return res.send(emptyTwiml());
       }
 
       if (lowerBody === "report") {
@@ -348,10 +341,9 @@ function createApp({
           return res.send(
             twiml(
               [
-                "📊 Monthly report is currently on hold.",
+                "Monthly report is currently on hold.",
                 "",
                 "Admin will activate it before salary slip preparation.",
-                "For now, you can use *status* for today's attendance.",
               ].join("\n"),
             ),
           );
@@ -364,19 +356,19 @@ function createApp({
       const adminCommand = parseAdminMarkCommand(body);
       if (adminCommand) {
         if (!config.admins.has(from)) {
-          return res.send(twiml("🔒 Only admins can mark attendance for another employee."));
+          return res.send(twiml("Only admins can mark attendance for another employee."));
         }
 
         const target = findEmployeeByName(config, adminCommand.employeeName);
         if (!target) {
-          return res.send(twiml(`⚠️ Employee not found: ${adminCommand.employeeName}`));
+          return res.send(twiml(`Employee not found: ${adminCommand.employeeName}`));
         }
 
         const dateKey = adminCommand.dateInput
           ? normalizeDate(adminCommand.dateInput)
           : current.dateKey;
         if (!dateKey) {
-          return res.send(twiml("⚠️ Invalid date. Use DD/MM/YYYY or YYYY-MM-DD."));
+          return res.send(twiml("Invalid date. Use DD/MM/YYYY or YYYY-MM-DD."));
         }
 
         const result = await attendance.markAttendance({
@@ -391,7 +383,7 @@ function createApp({
           return res.send(
             twiml(
               [
-                "✅ Admin update saved!",
+                "Admin update saved!",
                 "",
                 formatAttendanceMarked(adminCommand.action, target.name, displayDate(dateKey), current.time),
               ].join("\n"),
@@ -402,21 +394,20 @@ function createApp({
           return res.send(twiml(formatAlreadyMarked(adminCommand.action, result.time)));
         }
         if (result.reason === "out_before_in") {
-          return res.send(twiml(`⚠️ Please mark IN for ${target.name} before OUT.`));
+          return res.send(twiml(`Please mark IN for ${target.name} before OUT.`));
         }
 
-        return res.send(twiml("⚠️ Could not complete admin mark command."));
+        return res.send(twiml("Could not complete admin mark command."));
       }
 
       return res.send(
         twiml(
           [
-            "❓ Unknown command.",
+            "Unknown command.",
             "",
             "Send one of these:",
             "*in* - Office IN",
             "*out* - Office OUT",
-            "*status* - Today's status",
             config.reportsEnabled ? "*report* - Monthly report" : null,
             "*help* - Show commands",
           ].filter(Boolean).join("\n"),
@@ -425,7 +416,7 @@ function createApp({
     } catch (error) {
       logger.error("Webhook failed:", error);
       res.type("text/xml");
-      return res.send(twiml("⚠️ Something went wrong. Please try again."));
+      return res.send(twiml("Something went wrong. Please try again."));
     }
   });
 
@@ -446,7 +437,9 @@ module.exports = {
   maskPhone,
   parseAdminMarkCommand,
   safeEqual,
+  emptyTwiml,
   formatAttendanceMarked,
+  formatStatus,
   formatTime12,
   formatWelcome,
 };
