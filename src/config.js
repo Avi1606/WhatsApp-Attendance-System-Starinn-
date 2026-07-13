@@ -49,6 +49,21 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
     throw new Error("At least one employee must be configured");
   }
 
+  const employeeLocations = {};
+  if (raw.employeeLocations !== undefined) {
+    if (!raw.employeeLocations || typeof raw.employeeLocations !== "object" || Array.isArray(raw.employeeLocations)) {
+      throw new Error("employeeLocations must be an object mapping WhatsApp numbers to office location");
+    }
+
+    for (const [phone, location] of Object.entries(raw.employeeLocations)) {
+      const normalizedPhone = requireWhatsAppNumber(phone, "location employee phone");
+      if (!normalizedEmployees[normalizedPhone]) {
+        throw new Error(`Location configured for unknown employee: ${normalizedPhone}`);
+      }
+      employeeLocations[normalizedPhone] = requireString(location, `office location for ${normalizedPhone}`);
+    }
+  }
+
   const admins = new Set((raw.admins || []).map((phone) => requireWhatsAppNumber(phone, "admin phone")));
   for (const phone of admins) {
     if (!normalizedEmployees[phone]) throw new Error(`Admin is not an employee: ${phone}`);
@@ -80,6 +95,7 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
     adminNumber,
     admins,
     employees: Object.freeze(normalizedEmployees),
+    employeeLocations: Object.freeze(employeeLocations),
     timezone,
     workingWeekdays: new Set(workingWeekdays),
     holidays,

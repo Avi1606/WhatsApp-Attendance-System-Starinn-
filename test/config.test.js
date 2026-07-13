@@ -40,8 +40,24 @@ test("loadConfig validates and freezes runtime config", () =>
     assert.equal(config.workingWeekdays.has("Sat"), true);
     assert.equal(config.reportsEnabled, false);
     assert.equal(config.validateTwilioSignature, true);
+    assert.deepEqual(config.employeeLocations, {});
     assert.equal(Object.isFrozen(config.employees), true);
   }));
+
+test("loadConfig accepts employee office locations", () =>
+  withConfig(
+    {
+      ...baseConfig,
+      employeeLocations: {
+        "whatsapp:+910000000000": "Delhi Office",
+      },
+    },
+    (dir) => {
+      const config = loadConfig(baseEnv, dir);
+
+      assert.equal(config.employeeLocations["whatsapp:+910000000000"], "Delhi Office");
+    },
+  ));
 
 test("loadConfig can disable Twilio validation for local webhook testing", () =>
   withConfig(baseConfig, (dir) => {

@@ -2,10 +2,10 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { AttendanceStore, HEADER, dayTypeFor } = require("../src/attendance");
+const { AttendanceStore, HEADER, remarksFor, lateFor } = require("../src/attendance");
 const { createFakeSheets } = require("./helpers/fakeSheets");
 
-const employee = { id: "whatsapp:+910000000000", name: "Avi Kumar" };
+const employee = { id: "whatsapp:+910000000000", name: "Avi Kumar", location: "Delhi Office" };
 
 function createStore(rows = [[...HEADER]]) {
   const sheets = createFakeSheets(rows);
@@ -40,14 +40,20 @@ test("markAttendance creates header and marks first IN", async () => {
     "whatsapp:+910000000000",
     "SM1",
     "",
+    "Late",
+    "Delhi Office",
   ]);
 });
 
-test("dayTypeFor marks half day after 11 AM or before 5 PM", () => {
-  assert.equal(dayTypeFor("11:00"), "");
-  assert.equal(dayTypeFor("11:01"), "Half Day");
-  assert.equal(dayTypeFor("10:00", "17:00"), "");
-  assert.equal(dayTypeFor("10:00", "16:59"), "Half Day");
+test("remarksFor marks half day and lateFor marks late separately", () => {
+  assert.equal(lateFor("10:15"), "");
+  assert.equal(lateFor("10:16"), "Late");
+  assert.equal(lateFor("11:00"), "Late");
+  assert.equal(lateFor("11:01", "Half Day"), "");
+  assert.equal(remarksFor("11:00"), "");
+  assert.equal(remarksFor("11:01"), "Half Day");
+  assert.equal(remarksFor("10:00", "17:00"), "");
+  assert.equal(remarksFor("10:00", "16:59"), "Half Day");
 });
 
 test("markAttendance prevents OUT before IN", async () => {
@@ -93,7 +99,25 @@ test("markAttendance updates OUT on the same row", async () => {
     "whatsapp:+910000000000",
     "SM2",
     "",
+    "Late",
+    "Delhi Office",
   ]);
+});
+
+test("markAttendance marks late for IN after 10:15 AM", async () => {
+  const { sheets, store } = createStore();
+
+  await store.markAttendance({
+    employee,
+    action: "IN",
+    dateKey: "2026-07-06",
+    time: "10:16",
+    messageSid: "SM1",
+  });
+
+  assert.equal(sheets.rows[1][7], "");
+  assert.equal(sheets.rows[1][8], "Late");
+  assert.equal(sheets.rows[1][9], "Delhi Office");
 });
 
 test("markAttendance marks half day for late IN after 11 AM", async () => {
@@ -108,6 +132,7 @@ test("markAttendance marks half day for late IN after 11 AM", async () => {
   });
 
   assert.equal(sheets.rows[1][7], "Half Day");
+  assert.equal(sheets.rows[1][8], "");
 });
 
 test("markAttendance marks half day for OUT before 5 PM", async () => {
@@ -128,6 +153,7 @@ test("markAttendance marks half day for OUT before 5 PM", async () => {
   });
 
   assert.equal(sheets.rows[1][7], "Half Day");
+  assert.equal(sheets.rows[1][8], "");
 });
 
 test("markAttendance finds IN rows even when Google formats date without leading zero", async () => {
@@ -253,11 +279,16 @@ test("markAbsent skips employees whose present row is displayed as month/day/yea
       "whatsapp:+910000000001": "Other Employee",
     },
     "2026-07-08",
+    {
+      [employee.id]: employee.location,
+      "whatsapp:+910000000001": "Noida Office",
+    },
   );
 
   assert.equal(marked, 1);
   assert.equal(sheets.rows.filter((row) => row[0] === employee.name).length, 1);
   assert.equal(sheets.rows.some((row) => row[0] === "Other Employee" && row[4] === "Absent"), true);
+  assert.equal(sheets.rows.find((row) => row[0] === "Other Employee")[9], "Noida Office");
 });
 
 test("markAttendance inserts newest rows directly below the header", async () => {

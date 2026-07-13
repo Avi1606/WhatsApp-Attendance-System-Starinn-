@@ -85,7 +85,7 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
 
     autoAbsent: () =>
       runOnce("auto-absent", async (day) => ({
-        markedAbsent: await attendance.markAbsent(config.employees, day.dateKey),
+        markedAbsent: await attendance.markAbsent(config.employees, day.dateKey, config.employeeLocations),
         sent: 0,
       })),
   });

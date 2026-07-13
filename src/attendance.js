@@ -2,8 +2,9 @@
 
 const { normalizeDate, normalizeMonthFirstDate, sheetDateMatches } = require("./time");
 
-const HEADER = ["Name", "Date", "IN", "OUT", "Status", "Employee ID", "Last Message SID", "Day Type"];
+const HEADER = ["Name", "Date", "IN", "OUT", "Status", "Employee ID", "Last Message SID", "Remarks", "Late", "Office Location"];
 const ACTIONS = new Set(["IN", "OUT"]);
+const LATE_IN_AFTER = "10:15";
 const HALF_DAY_IN_AFTER = "11:00";
 const HALF_DAY_OUT_BEFORE = "17:00";
 
@@ -19,7 +20,7 @@ function minutesSinceMidnight(time) {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-function dayTypeFor(inTime, outTime = "") {
+function remarksFor(inTime, outTime = "") {
   const inMinutes = minutesSinceMidnight(inTime);
   const outMinutes = minutesSinceMidnight(outTime);
   const inCutoff = minutesSinceMidnight(HALF_DAY_IN_AFTER);
@@ -27,6 +28,15 @@ function dayTypeFor(inTime, outTime = "") {
 
   if (inMinutes !== null && inMinutes > inCutoff) return "Half Day";
   if (outMinutes !== null && outMinutes < outCutoff) return "Half Day";
+  return "";
+}
+
+function lateFor(inTime, remarks = "") {
+  if (remarks === "Half Day") return "";
+  const inMinutes = minutesSinceMidnight(inTime);
+  const lateCutoff = minutesSinceMidnight(LATE_IN_AFTER);
+
+  if (inMinutes !== null && inMinutes > lateCutoff) return "Late";
   return "";
 }
 
@@ -67,14 +77,14 @@ class AttendanceStore {
 
     const result = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: `${this.sheetName}!A:H`,
+      range: `${this.sheetName}!A:J`,
     });
     const rows = result.data.values || [];
 
     if (rows.length === 0) {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A1:H1`,
+        range: `${this.sheetName}!A1:J1`,
         valueInputOption: "RAW",
         requestBody: { values: [HEADER] },
       });
@@ -82,7 +92,7 @@ class AttendanceStore {
     } else if (isHeader(rows[0]) && rows[0].length < HEADER.length) {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A1:H1`,
+        range: `${this.sheetName}!A1:J1`,
         valueInputOption: "RAW",
         requestBody: { values: [HEADER] },
       });
@@ -185,7 +195,7 @@ class AttendanceStore {
 
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
-      range: `${this.sheetName}!A2:H${1 + rowsToInsert.length}`,
+      range: `${this.sheetName}!A2:J${1 + rowsToInsert.length}`,
       valueInputOption: "RAW",
       requestBody: { values: rowsToInsert },
     });
@@ -225,7 +235,8 @@ class AttendanceStore {
       if (rowIndex === -1) {
         if (action === "OUT") return { ok: false, reason: "out_before_in" };
 
-        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid, dayTypeFor(time)];
+        const remarks = remarksFor(time);
+        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid, remarks, lateFor(time, remarks), employee.location || ""];
         await this.insertRowsAtTop([row]);
         this.invalidate();
         return { ok: true, action };
@@ -245,6 +256,7 @@ class AttendanceStore {
 
       const newIn = action === "IN" ? time : inTime;
       const newOut = action === "OUT" ? time : outTime;
+      const remarks = remarksFor(newIn, newOut);
       const updated = [
         employee.name,
         dateKey,
@@ -253,12 +265,14 @@ class AttendanceStore {
         statusFor(newIn, newOut),
         employee.id,
         messageSid,
-        dayTypeFor(newIn, newOut),
+        remarks,
+        lateFor(newIn, remarks),
+        employee.location || existing[9] || "",
       ];
 
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A${rowIndex + 1}:H${rowIndex + 1}`,
+        range: `${this.sheetName}!A${rowIndex + 1}:J${rowIndex + 1}`,
         valueInputOption: "RAW",
         requestBody: { values: [updated] },
       });
@@ -343,15 +357,15 @@ class AttendanceStore {
     return result;
   }
 
-  async markAbsent(employees, dateKey) {
+  async markAbsent(employees, dateKey, employeeLocations = {}) {
     return this.serialize(async () => {
       const rows = await this.getRows({ fresh: true });
       const absentRows = [];
 
       for (const [id, name] of Object.entries(employees)) {
-        const employee = { id, name };
+        const employee = { id, name, location: employeeLocations[id] || "" };
         if (this.findAttendanceRow(rows, employee, dateKey) === -1) {
-          absentRows.push([name, dateKey, "", "", statusFor("", ""), id, "", ""]);
+          absentRows.push([name, dateKey, "", "", statusFor("", ""), id, "", "", "", employee.location]);
         }
       }
 
@@ -365,4 +379,4 @@ class AttendanceStore {
   }
 }
 
-module.exports = { AttendanceStore, statusFor, dayTypeFor, HEADER };
+module.exports = { AttendanceStore, statusFor, remarksFor, lateFor, HEADER };

@@ -41,7 +41,7 @@ function createSendMessage({ twilioClient, fromNumber, logger = console }) {
 
 function employeeFromConfig(config, phone) {
   const name = config.employees[phone];
-  return name ? { id: phone, name } : null;
+  return name ? { id: phone, name, location: config.employeeLocations[phone] || "" } : null;
 }
 
 function findEmployeeByName(config, name) {
@@ -50,7 +50,7 @@ function findEmployeeByName(config, name) {
 
   for (const [id, employeeName] of Object.entries(config.employees)) {
     if (employeeName.toLowerCase() === wanted) {
-      return { id, name: employeeName };
+      return { id, name: employeeName, location: config.employeeLocations[id] || "" };
     }
   }
 

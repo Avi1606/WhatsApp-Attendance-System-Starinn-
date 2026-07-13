@@ -131,17 +131,29 @@ This helps avoid scheduler errors such as "response data too long".
 The bot uses columns `A:G`:
 
 ```text
-Name | Date | IN | OUT | Status | Employee ID | Last Message SID | Day Type
+Name | Date | IN | OUT | Status | Employee ID | Last Message SID | Remarks | Late | Office Location
 ```
 
 Older rows with only `A:E` still work by matching employee name, but new writes include Employee ID and Message SID.
 
 New attendance rows are inserted directly below the header at row 2, so the newest record stays at the top.
 
-`Day Type` is marked as `Half Day` when:
+`Remarks` is marked as `Half Day` when:
 
 - IN is after `11:00`
 - or OUT is before `17:00`
+
+`Late` is marked as `Late` when:
+
+- IN is after `10:15`
+
+When configured, `Office Location` is filled from `employeeLocations` in `config.json`:
+
+```json
+"employeeLocations": {
+  "whatsapp:+918780901324": "Delhi Office"
+}
+```
 
 ## Testing auto replies locally
 

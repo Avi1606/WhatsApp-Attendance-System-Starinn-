@@ -2,9 +2,8 @@ node_modules/
 .env
 .env.*
 !.env.example
+password.env
 config.json
 credentials.json
-password.env
-.agents/
 *.log
 coverage/
