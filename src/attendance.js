@@ -49,6 +49,12 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function attendanceNotesFor(employee, inTime, outTime = "") {
+  if (employee.timeExempt) return { remarks: "", late: "" };
+  const remarks = remarksFor(inTime, outTime);
+  return { remarks, late: lateFor(inTime, remarks) };
+}
+
 class AttendanceStore {
   constructor({ sheets, spreadsheetId, sheetName, cacheTtlMs = 5000 }) {
     this.sheets = sheets;
@@ -235,8 +241,8 @@ class AttendanceStore {
       if (rowIndex === -1) {
         if (action === "OUT") return { ok: false, reason: "out_before_in" };
 
-        const remarks = remarksFor(time);
-        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid, remarks, lateFor(time, remarks), employee.location || ""];
+        const notes = attendanceNotesFor(employee, time);
+        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid, notes.remarks, notes.late, employee.location || ""];
         await this.insertRowsAtTop([row]);
         this.invalidate();
         return { ok: true, action };
@@ -256,7 +262,7 @@ class AttendanceStore {
 
       const newIn = action === "IN" ? time : inTime;
       const newOut = action === "OUT" ? time : outTime;
-      const remarks = remarksFor(newIn, newOut);
+      const notes = attendanceNotesFor(employee, newIn, newOut);
       const updated = [
         employee.name,
         dateKey,
@@ -265,8 +271,8 @@ class AttendanceStore {
         statusFor(newIn, newOut),
         employee.id,
         messageSid,
-        remarks,
-        lateFor(newIn, remarks),
+        notes.remarks,
+        notes.late,
         employee.location || existing[9] || "",
       ];
 
@@ -379,4 +385,4 @@ class AttendanceStore {
   }
 }
 
-module.exports = { AttendanceStore, statusFor, remarksFor, lateFor, HEADER };
+module.exports = { AttendanceStore, statusFor, remarksFor, lateFor, attendanceNotesFor, HEADER };

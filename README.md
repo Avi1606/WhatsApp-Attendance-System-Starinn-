@@ -155,6 +155,16 @@ When configured, `Office Location` is filled from `employeeLocations` in `config
 }
 ```
 
+Employees who should not have time-based `Remarks` or `Late` can be added to:
+
+```json
+"timeExemptEmployees": [
+  "whatsapp:+918780901324"
+]
+```
+
+These employees can still mark IN/OUT normally, but `Remarks` and `Late` stay blank.
+
 ## Testing auto replies locally
 
 For local testing without Twilio's signature header, set this in `password.env` or `.env`:

@@ -64,6 +64,11 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
     }
   }
 
+  const timeExemptEmployees = new Set((raw.timeExemptEmployees || []).map((phone) => requireWhatsAppNumber(phone, "time exempt employee phone")));
+  for (const phone of timeExemptEmployees) {
+    if (!normalizedEmployees[phone]) throw new Error(`Time exempt employee is not configured: ${phone}`);
+  }
+
   const admins = new Set((raw.admins || []).map((phone) => requireWhatsAppNumber(phone, "admin phone")));
   for (const phone of admins) {
     if (!normalizedEmployees[phone]) throw new Error(`Admin is not an employee: ${phone}`);
@@ -96,6 +101,7 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
     admins,
     employees: Object.freeze(normalizedEmployees),
     employeeLocations: Object.freeze(employeeLocations),
+    timeExemptEmployees,
     timezone,
     workingWeekdays: new Set(workingWeekdays),
     holidays,

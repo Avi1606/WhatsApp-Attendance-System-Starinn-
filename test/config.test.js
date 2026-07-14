@@ -41,6 +41,7 @@ test("loadConfig validates and freezes runtime config", () =>
     assert.equal(config.reportsEnabled, false);
     assert.equal(config.validateTwilioSignature, true);
     assert.deepEqual(config.employeeLocations, {});
+    assert.equal(config.timeExemptEmployees.size, 0);
     assert.equal(Object.isFrozen(config.employees), true);
   }));
 
@@ -56,6 +57,19 @@ test("loadConfig accepts employee office locations", () =>
       const config = loadConfig(baseEnv, dir);
 
       assert.equal(config.employeeLocations["whatsapp:+910000000000"], "Delhi Office");
+    },
+  ));
+
+test("loadConfig accepts time-exempt employees", () =>
+  withConfig(
+    {
+      ...baseConfig,
+      timeExemptEmployees: ["whatsapp:+910000000000"],
+    },
+    (dir) => {
+      const config = loadConfig(baseEnv, dir);
+
+      assert.equal(config.timeExemptEmployees.has("whatsapp:+910000000000"), true);
     },
   ));
 

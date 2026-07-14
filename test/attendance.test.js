@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { AttendanceStore, HEADER, remarksFor, lateFor } = require("../src/attendance");
+const { AttendanceStore, HEADER, remarksFor, lateFor, attendanceNotesFor } = require("../src/attendance");
 const { createFakeSheets } = require("./helpers/fakeSheets");
 
 const employee = { id: "whatsapp:+910000000000", name: "Avi Kumar", location: "Delhi Office" };
@@ -54,6 +54,12 @@ test("remarksFor marks half day and lateFor marks late separately", () => {
   assert.equal(remarksFor("11:01"), "Half Day");
   assert.equal(remarksFor("10:00", "17:00"), "");
   assert.equal(remarksFor("10:00", "16:59"), "Half Day");
+});
+
+test("attendanceNotesFor leaves remarks and late blank for time-exempt employees", () => {
+  const notes = attendanceNotesFor({ ...employee, timeExempt: true }, "12:30", "16:00");
+
+  assert.deepEqual(notes, { remarks: "", late: "" });
 });
 
 test("markAttendance prevents OUT before IN", async () => {
@@ -153,6 +159,28 @@ test("markAttendance marks half day for OUT before 5 PM", async () => {
   });
 
   assert.equal(sheets.rows[1][7], "Half Day");
+  assert.equal(sheets.rows[1][8], "");
+});
+
+test("markAttendance does not mark late or half day for time-exempt employees", async () => {
+  const { sheets, store } = createStore();
+
+  await store.markAttendance({
+    employee: { ...employee, timeExempt: true },
+    action: "IN",
+    dateKey: "2026-07-06",
+    time: "12:30",
+    messageSid: "SM1",
+  });
+  await store.markAttendance({
+    employee: { ...employee, timeExempt: true },
+    action: "OUT",
+    dateKey: "2026-07-06",
+    time: "16:00",
+    messageSid: "SM2",
+  });
+
+  assert.equal(sheets.rows[1][7], "");
   assert.equal(sheets.rows[1][8], "");
 });
 
