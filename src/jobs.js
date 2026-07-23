@@ -17,19 +17,6 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
     return config.holidays.has(day.dateKey);
   }
 
-  function employeesOutsideJasola() {
-    return Object.fromEntries(
-      Object.entries(config.employees).filter(([id]) => {
-        const location = String(config.employeeLocations[id] || "").trim().toLowerCase();
-        return location && location !== "jasola office";
-      }),
-    );
-  }
-
-  function isSunday(day) {
-    return day.weekday === "Sun";
-  }
-
   async function sendAll(messages) {
     const results = await Promise.allSettled(messages.map(({ to, body }) => sendMessage(to, body)));
     const failed = results.filter((result) => result.status === "rejected");
@@ -104,14 +91,10 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
     autoAbsent: () =>
       runOnce(
         "auto-absent",
-        async (day) => {
-          const employeesToMark = isSunday(day) ? employeesOutsideJasola() : config.employees;
-
-          return {
-            markedAbsent: await attendance.markAbsent(employeesToMark, day.dateKey, config.employeeLocations),
-            sent: 0,
-          };
-        },
+        async (day) => ({
+          markedAbsent: await attendance.markAbsent(config.employees, day.dateKey, config.employeeLocations),
+          sent: 0,
+        }),
         { requireWorkingDay: false },
       ),
 

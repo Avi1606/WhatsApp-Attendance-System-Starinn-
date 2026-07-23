@@ -114,7 +114,7 @@ Suggested schedule in `Asia/Kolkata`:
 | 10:30 | `POST /jobs/morning` | Remind employees who have not marked IN |
 | 19:00 | `POST /jobs/forgot-out` | Remind employees who marked IN but not OUT |
 | 21:00 | `POST /jobs/daily-report` | Send admin daily summary |
-| 23:00 | `POST /jobs/auto-absent` | Add Absent rows; on Sunday only non-Jasola offices are included |
+| 23:00 | `POST /jobs/auto-absent` | Add Absent rows for employees with no record |
 
 Each job is also guarded in-process so the same job/date is skipped if the same server instance receives duplicate scheduler calls.
 
@@ -132,7 +132,7 @@ The main absent endpoint can be scheduled every day:
 POST /jobs/auto-absent?quiet=1
 ```
 
-Monday-Saturday it checks all employees. Sunday it checks only employees whose `Office Location` is configured and is not `Jasola Office`. It still skips dates listed in `holidays`.
+It checks all employees every day, including Sunday. It still skips dates listed in `holidays`.
 
 ## Google Sheet schema
 

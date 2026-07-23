@@ -25,7 +25,7 @@ function createConfig(overrides = {}) {
   };
 }
 
-test("autoAbsent marks only non-Jasola offices on Sunday", async () => {
+test("autoAbsent marks all employees on Sunday", async () => {
   let markedEmployees;
   const attendance = {
     async markAbsent(employees) {
@@ -43,10 +43,12 @@ test("autoAbsent marks only non-Jasola offices on Sunday", async () => {
 
   const result = await jobs.autoAbsent();
 
-  assert.equal(result.markedAbsent, 2);
+  assert.equal(result.markedAbsent, 4);
   assert.deepEqual(Object.keys(markedEmployees).sort(), [
+    "whatsapp:+910000000001",
     "whatsapp:+910000000002",
     "whatsapp:+910000000003",
+    "whatsapp:+910000000004",
   ]);
 });
 
