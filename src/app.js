@@ -257,6 +257,8 @@ function createApp({
         morning: jobs.morning,
         "forgot-out": jobs.forgotOut,
         "daily-report": jobs.dailyReport,
+        "location-daily-report": jobs.locationDailyReport,
+        "salary-report": jobs.salaryReport,
         "auto-absent": jobs.autoAbsent,
       };
       const handler = handlers[req.params.name];

@@ -18,6 +18,29 @@ function requireWhatsAppNumber(value, label) {
   return number;
 }
 
+function optionalMoneyMap(rawMap, normalizedEmployees, label) {
+  const result = {};
+  if (rawMap === undefined) return result;
+  if (!rawMap || typeof rawMap !== "object" || Array.isArray(rawMap)) {
+    throw new Error(`${label} must be an object mapping WhatsApp numbers to numbers`);
+  }
+
+  for (const [phone, value] of Object.entries(rawMap)) {
+    const normalizedPhone = requireWhatsAppNumber(phone, `${label} employee phone`);
+    if (!normalizedEmployees[normalizedPhone]) {
+      throw new Error(`${label} configured for unknown employee: ${normalizedPhone}`);
+    }
+
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new Error(`${label} must be a non-negative number for ${normalizedPhone}`);
+    }
+    result[normalizedPhone] = amount;
+  }
+
+  return result;
+}
+
 function loadConfig(env = process.env, cwd = process.cwd()) {
   const configPath = path.resolve(cwd, env.CONFIG_PATH || "config.json");
   let raw;
@@ -69,6 +92,20 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
     if (!normalizedEmployees[phone]) throw new Error(`Time exempt employee is not configured: ${phone}`);
   }
 
+  const officeManagers = {};
+  if (raw.officeManagers !== undefined) {
+    if (!raw.officeManagers || typeof raw.officeManagers !== "object" || Array.isArray(raw.officeManagers)) {
+      throw new Error("officeManagers must be an object mapping office location to WhatsApp number");
+    }
+
+    for (const [office, phone] of Object.entries(raw.officeManagers)) {
+      officeManagers[requireString(office, "office manager location")] = requireWhatsAppNumber(phone, `manager phone for ${office}`);
+    }
+  }
+
+  const employeeSalaries = optionalMoneyMap(raw.employeeSalaries, normalizedEmployees, "employeeSalaries");
+  const employeeFines = optionalMoneyMap(raw.employeeFines, normalizedEmployees, "employeeFines");
+
   const admins = new Set((raw.admins || []).map((phone) => requireWhatsAppNumber(phone, "admin phone")));
   for (const phone of admins) {
     if (!normalizedEmployees[phone]) throw new Error(`Admin is not an employee: ${phone}`);
@@ -96,12 +133,16 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
   return Object.freeze({
     spreadsheetId: requireString(raw.spreadsheetId, "spreadsheetId"),
     sheetName: requireString(raw.sheetName || "Attendance", "sheetName"),
+    salarySheetName: requireString(raw.salarySheetName || raw.sheetName || "Attendance", "salarySheetName"),
     twilioFromNumber: requireWhatsAppNumber(raw.twilioFromNumber, "twilioFromNumber"),
     adminNumber,
     admins,
     employees: Object.freeze(normalizedEmployees),
     employeeLocations: Object.freeze(employeeLocations),
     timeExemptEmployees,
+    officeManagers: Object.freeze(officeManagers),
+    employeeSalaries: Object.freeze(employeeSalaries),
+    employeeFines: Object.freeze(employeeFines),
     timezone,
     workingWeekdays: new Set(workingWeekdays),
     holidays,

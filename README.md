@@ -114,7 +114,9 @@ Suggested schedule in `Asia/Kolkata`:
 | 10:30 | `POST /jobs/morning` | Remind employees who have not marked IN |
 | 19:00 | `POST /jobs/forgot-out` | Remind employees who marked IN but not OUT |
 | 21:00 | `POST /jobs/daily-report` | Send admin daily summary |
+| 21:15 | `POST /jobs/location-daily-report` | Send office-wise Absent, No OUT, and Half Day reports to seniors |
 | 23:00 | `POST /jobs/auto-absent` | Add Absent rows for employees with no record |
+| Monthly | `POST /jobs/salary-report` | Send salary-cycle report to employees |
 
 Each job is also guarded in-process so the same job/date is skipped if the same server instance receives duplicate scheduler calls.
 
@@ -134,15 +136,44 @@ POST /jobs/auto-absent?quiet=1
 
 It checks all employees every day, including Sunday. It still skips dates listed in `holidays`.
 
+Office-wise senior reports use `officeManagers` from `config.json`:
+
+```json
+"officeManagers": {
+  "Jasola Office": "whatsapp:+910000000000",
+  "Noida Office": "whatsapp:+910000000001",
+  "South Ex Office": "whatsapp:+910000000002"
+}
+```
+
+Salary report cycle is from the 20th to the 20th. For example, if the job runs on August 26, it reports July 20 to August 20. The salary report can read optional sheet columns named `Salary` or `Monthly Salary`, `Max Leaves`, and `Fine`. You can also keep salary/fine values in `config.json`:
+
+```json
+"employeeSalaries": {
+  "whatsapp:+918780901324": 30000
+},
+"employeeFines": {
+  "whatsapp:+918780901324": 500
+}
+```
+
+No OUT marked days are counted as absent/not payable in the salary report.
+
 ## Google Sheet schema
 
-The bot uses columns `A:G`:
+The bot writes attendance data in columns `A:J`:
 
 ```text
 Name | Date | IN | OUT | Status | Employee ID | Last Message SID | Remarks | Late | Office Location
 ```
 
-Older rows with only `A:E` still work by matching employee name, but new writes include Employee ID and Message SID.
+Older rows with only `A:E` still work by matching employee name, but new writes include Employee ID, Message SID, Remarks, Late, and Office Location.
+
+For salary reports, you can add extra columns after `J`, such as:
+
+```text
+Max Leaves | Salary | Fine
+```
 
 New attendance rows are inserted directly below the header at row 2, so the newest record stays at the top.
 

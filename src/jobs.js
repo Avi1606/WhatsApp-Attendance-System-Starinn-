@@ -2,6 +2,75 @@
 
 const { displayDate, zonedDateTime } = require("./time");
 
+function money(value) {
+  return Math.round(value || 0).toLocaleString("en-IN");
+}
+
+function addMonths(year, month, delta) {
+  const date = new Date(Date.UTC(year, month - 1 + delta, 1));
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1 };
+}
+
+function dateKey(year, month, day) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function salaryCycleFor(currentDateKey) {
+  const [year, month, day] = currentDateKey.split("-").map(Number);
+  const endMonth = day >= 20 ? { year, month } : addMonths(year, month, -1);
+  const startMonth = addMonths(endMonth.year, endMonth.month, -1);
+
+  return {
+    startDateKey: dateKey(startMonth.year, startMonth.month, 20),
+    endDateKey: dateKey(endMonth.year, endMonth.month, 20),
+  };
+}
+
+function numberedLines(items, formatter = (item) => item) {
+  if (!items.length) return "None";
+  return items.map((item, index) => `${index + 1}. ${formatter(item)}`).join("\n");
+}
+
+function formatOfficeReport(report, day) {
+  return [
+    `Daily Attendance Report - ${report.office}`,
+    `Date: ${displayDate(day.dateKey)}`,
+    "",
+    "Absent:",
+    numberedLines(report.absent),
+    "",
+    "No OUT:",
+    numberedLines(report.noOut, (item) => `${item.name} - IN ${item.inTime}`),
+    "",
+    "Half Day:",
+    numberedLines(report.halfDay, (item) => `${item.name} - IN ${item.inTime}${item.outTime ? `, OUT ${item.outTime}` : ""}`),
+  ].join("\n");
+}
+
+function formatSalaryReport(row, cycle) {
+  const grossBeforeFine = Math.max(row.salary - row.deductionDays * row.perDaySalary, 0);
+  return [
+    `Salary Report - ${row.name}`,
+    `Cycle: ${displayDate(cycle.startDateKey)} to ${displayDate(cycle.endDateKey)}`,
+    "",
+    `Total IN/OUT present days: ${row.presentDays}`,
+    `Half days: ${row.halfDays}`,
+    `Absent days: ${row.absentDays}`,
+    `No OUT marked days: ${row.noOutDays}`,
+    `Late days: ${row.lateDays || 0}`,
+    `Max absent days allowed: ${row.maxLeaves}`,
+    "",
+    `Salary: Rs ${money(row.salary)}`,
+    `Per day salary: Rs ${money(row.perDaySalary)}`,
+    `Deduction days: ${row.deductionDays}`,
+    `Fine: Rs ${money(row.fine)}`,
+    `Gross after attendance: Rs ${money(grossBeforeFine)}`,
+    `Final payout: Rs ${money(row.totalPayout)}`,
+    "",
+    "Note: No OUT marked days are not counted as present because OUT was not marked. They are counted as absent/not payable.",
+  ].join("\n");
+}
+
 function createJobRunner({ config, attendance, sendMessage, now = () => new Date(), logger = console }) {
   const completedRuns = new Set();
 
@@ -88,6 +157,45 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
         return { sent: 1 };
       }),
 
+    locationDailyReport: () =>
+      runOnce("location-daily-report", async (day) => {
+        const reports = await attendance.getDailyOfficeReport(config.employees, config.employeeLocations, day.dateKey);
+        const messages = reports
+          .filter((report) => config.officeManagers[report.office])
+          .map((report) => ({
+            to: config.officeManagers[report.office],
+            body: formatOfficeReport(report, day),
+          }));
+
+        return { sent: await sendAll(messages) };
+      }),
+
+    salaryReport: () =>
+      runOnce(
+        "salary-report",
+        async (day) => {
+          const cycle = salaryCycleFor(day.dateKey);
+          const reports = await attendance.getSalaryReport({
+            employees: config.employees,
+            employeeLocations: config.employeeLocations,
+            employeeSalaries: config.employeeSalaries,
+            employeeFines: config.employeeFines,
+            salarySheetName: config.salarySheetName,
+            startDateKey: cycle.startDateKey,
+            endDateKey: cycle.endDateKey,
+          });
+          const messages = reports
+            .filter((report) => report.salary > 0 || report.perDaySalary > 0 || report.totalPayout > 0)
+            .map((report) => ({
+              to: report.id,
+              body: formatSalaryReport(report, cycle),
+            }));
+
+          return { sent: await sendAll(messages) };
+        },
+        { requireWorkingDay: false },
+      ),
+
     autoAbsent: () =>
       runOnce(
         "auto-absent",
@@ -101,4 +209,4 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
   });
 }
 
-module.exports = { createJobRunner };
+module.exports = { createJobRunner, formatOfficeReport, formatSalaryReport, salaryCycleFor };

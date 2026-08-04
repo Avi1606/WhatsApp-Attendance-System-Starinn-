@@ -40,10 +40,24 @@ test("loadConfig validates and freezes runtime config", () =>
     assert.equal(config.workingWeekdays.has("Sat"), true);
     assert.equal(config.reportsEnabled, false);
     assert.equal(config.validateTwilioSignature, true);
+    assert.equal(config.salarySheetName, "Attendance");
     assert.deepEqual(config.employeeLocations, {});
     assert.equal(config.timeExemptEmployees.size, 0);
     assert.equal(Object.isFrozen(config.employees), true);
   }));
+
+test("loadConfig accepts a separate salary sheet name", () =>
+  withConfig(
+    {
+      ...baseConfig,
+      salarySheetName: "Salary",
+    },
+    (dir) => {
+      const config = loadConfig(baseEnv, dir);
+
+      assert.equal(config.salarySheetName, "Salary");
+    },
+  ));
 
 test("loadConfig accepts employee office locations", () =>
   withConfig(

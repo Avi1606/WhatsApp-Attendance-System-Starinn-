@@ -377,3 +377,104 @@ test("getMonthlyReport counts present, absent, and missed OUT rows", async () =>
   assert.equal(report.presentDays, 2);
   assert.equal(report.rows.length, 3);
 });
+
+test("getDailyOfficeReport groups absent, no OUT, and half day by office", async () => {
+  const employees = {
+    [employee.id]: employee.name,
+    "whatsapp:+910000000001": "Aditya Shankar",
+    "whatsapp:+910000000002": "Muskan",
+  };
+  const locations = {
+    [employee.id]: "Jasola Office",
+    "whatsapp:+910000000001": "Jasola Office",
+    "whatsapp:+910000000002": "Jasola Office",
+  };
+  const { store } = createStore([
+    [...HEADER],
+    ["Aditya Shankar", "2026-08-01", "10:20", "", "Present (no OUT)", "whatsapp:+910000000001", "SM1", "", "Late", "Jasola Office"],
+    ["Muskan", "2026-08-01", "11:05", "18:00", "Present", "whatsapp:+910000000002", "SM2", "Half Day", "", "Jasola Office"],
+  ]);
+
+  const [report] = await store.getDailyOfficeReport(employees, locations, "2026-08-01");
+
+  assert.equal(report.office, "Jasola Office");
+  assert.deepEqual(report.absent, ["Avi Kumar"]);
+  assert.deepEqual(report.noOut, [{ name: "Aditya Shankar", inTime: "10:20" }]);
+  assert.deepEqual(report.halfDay, [{ name: "Muskan", inTime: "11:05", outTime: "18:00" }]);
+});
+
+test("getSalaryReport counts no OUT as unpaid and reads max leaves, salary, and fine columns", async () => {
+  const salaryHeader = [...HEADER, "Max Leaves", "Salary", "Fine"];
+  const { store } = createStore([
+    salaryHeader,
+    [employee.name, "2026-07-20", "10:00", "18:00", "Present", employee.id, "SM1", "", "", "Delhi Office", "1", "31000", "500"],
+    [employee.name, "2026-07-21", "10:00", "", "Present (no OUT)", employee.id, "SM2", "", "", "Delhi Office", "1", "31000", "500"],
+    [employee.name, "2026-07-22", "", "", "Absent", employee.id, "", "", "", "Delhi Office", "1", "31000", "500"],
+    [employee.name, "2026-07-23", "", "", "Absent", employee.id, "", "", "", "Delhi Office", "1", "31000", "500"],
+  ]);
+
+  const [report] = await store.getSalaryReport({
+    employees: { [employee.id]: employee.name },
+    employeeLocations: { [employee.id]: employee.location },
+    startDateKey: "2026-07-20",
+    endDateKey: "2026-08-20",
+  });
+
+  assert.equal(report.cycleDays, 32);
+  assert.equal(report.presentDays, 1);
+  assert.equal(report.noOutDays, 1);
+  assert.equal(report.absentDays, 2);
+  assert.equal(report.maxLeaves, 1);
+  assert.equal(report.unpaidAbsentDays, 1);
+  assert.equal(report.deductionDays, 2);
+  assert.equal(report.salary, 31000);
+  assert.equal(report.fine, 500);
+  assert.equal(report.totalPayout, 28562.5);
+});
+
+test("getSalaryReport reads already-calculated salary sheet columns", async () => {
+  const salaryHeader = [
+    "Name",
+    "Employee ID",
+    "Present Days",
+    "Half Days",
+    "Absent Days",
+    "Per Day Salary",
+    "Maximum Allowed Leaves",
+    "Final Payout",
+    "Late",
+  ];
+  const sheets = createFakeSheets({
+    Attendance: [
+      [...HEADER],
+      [employee.name, "2026-07-21", "10:00", "", "Present (no OUT)", employee.id, "SM1", "", "", employee.location],
+    ],
+    Salary: [
+      salaryHeader,
+      [employee.name, employee.id, "20", "2", "3", "1000", "4", "27000", "5"],
+    ],
+  });
+  const store = new AttendanceStore({
+    sheets,
+    spreadsheetId: "sheet-id",
+    sheetName: "Attendance",
+    cacheTtlMs: 0,
+  });
+
+  const [report] = await store.getSalaryReport({
+    employees: { [employee.id]: employee.name },
+    employeeLocations: { [employee.id]: employee.location },
+    salarySheetName: "Salary",
+    startDateKey: "2026-07-20",
+    endDateKey: "2026-08-20",
+  });
+
+  assert.equal(report.presentDays, 20);
+  assert.equal(report.halfDays, 2);
+  assert.equal(report.absentDays, 3);
+  assert.equal(report.noOutDays, 1);
+  assert.equal(report.perDaySalary, 1000);
+  assert.equal(report.maxLeaves, 4);
+  assert.equal(report.totalPayout, 27000);
+  assert.equal(report.lateDays, 5);
+});
