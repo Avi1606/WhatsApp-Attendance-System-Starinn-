@@ -130,36 +130,6 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
             body: `Reminder: Hey ${record.name}, you marked IN at ${record.inTime} but haven't marked OUT yet.\nReply *out* when you leave.`,
           }));
 
-    const result = await task(day);
-    completedRuns.add(key);
-    logger.info(`[JOB] ${name} completed for ${day.dateKey}`);
-    return result;
-  }
-
-  return Object.freeze({
-    morning: () =>
-      runOnce("morning", async (day) => {
-        const daily = await attendance.getDailyMap(config.employees, day.dateKey);
-        const messages = Object.entries(config.employees)
-          .filter(([id]) => !daily.get(id)?.inTime)
-          .map(([to, name]) => ({
-            to,
-            body: `Good morning ${name}!\n\nPlease mark your attendance when you arrive.\nReply *in* for Office IN.`,
-          }));
-
-        return { sent: await sendAll(messages) };
-      }),
-
-    forgotOut: () =>
-      runOnce("forgot-out", async (day) => {
-        const daily = await attendance.getDailyMap(config.employees, day.dateKey);
-        const messages = [...daily.entries()]
-          .filter(([, record]) => record.inTime && !record.outTime)
-          .map(([to, record]) => ({
-            to,
-            body: `Reminder: Hey ${record.name}, you marked IN at ${record.inTime} but haven't marked OUT yet.\nReply *out* when you leave.`,
-          }));
-
         return { sent: await sendAll(messages) };
       }),
 

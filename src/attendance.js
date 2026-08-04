@@ -422,9 +422,7 @@ class AttendanceStore {
       const bucket = officeBucket(office);
       const record = daily.get(id);
 
-      if (!record) continue;
-
-      if (!record.inTime || record.remarks === "Absent" || record.status === "Absent") {
+      if (!record || !record.inTime || record.remarks === "Absent" || record.status === "Absent") {
         bucket.absent.push(name);
         continue;
       }
