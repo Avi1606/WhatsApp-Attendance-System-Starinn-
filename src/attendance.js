@@ -412,7 +412,7 @@ class AttendanceStore {
 
     function officeBucket(office) {
       if (!offices.has(office)) {
-        offices.set(office, { office, absent: [], noOut: [], halfDay: [] });
+        offices.set(office, { office, absent: [], noOut: [], late: [], halfDay: [] });
       }
       return offices.get(office);
     }
@@ -429,6 +429,9 @@ class AttendanceStore {
 
       if (!record.outTime) {
         bucket.noOut.push({ name, inTime: record.inTime });
+      }
+      if (record.late === "Late") {
+        bucket.late.push({ name, inTime: record.inTime, outTime: record.outTime || "" });
       }
       if (record.remarks === "Half Day") {
         bucket.halfDay.push({ name, inTime: record.inTime, outTime: record.outTime || "" });

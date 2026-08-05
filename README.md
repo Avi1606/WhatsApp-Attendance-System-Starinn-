@@ -113,8 +113,8 @@ Suggested schedule in `Asia/Kolkata`:
 | --- | --- | --- |
 | 10:30 | `POST /jobs/morning` | Remind employees who have not marked IN |
 | 19:00 | `POST /jobs/forgot-out` | Remind employees who marked IN but not OUT |
-| 21:00 | `POST /jobs/daily-report` | Send admin daily summary |
-| 21:15 | `POST /jobs/location-daily-report` | Send office-wise Absent, No OUT, and Half Day reports to seniors |
+| 09:00 next day | `POST /jobs/daily-report` | Send the previous day's admin summary |
+| 09:15 next day | `POST /jobs/location-daily-report` | Send the previous day's office-wise Absent, No OUT, Late, and Half Day reports to seniors |
 | 23:00 | `POST /jobs/auto-absent` | Add Absent rows for employees with no record |
 | Monthly | `POST /jobs/salary-report` | Send salary-cycle report to employees |
 

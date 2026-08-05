@@ -107,12 +107,14 @@ test("formatOfficeReport includes half day section", () => {
       office: "Jasola Office",
       absent: ["Avi Kumar", "Suman"],
       noOut: [{ name: "Aditya Shankar", inTime: "10:20" }],
+      late: [{ name: "Karan", inTime: "10:25", outTime: "18:05" }],
       halfDay: [{ name: "Muskan", inTime: "11:05", outTime: "18:00" }],
     },
     { dateKey: "2026-08-01" },
   );
 
   assert.match(body, /Daily Attendance Report - Jasola Office/);
+  assert.match(body, /Late:\n1\. Karan - IN 10:25, OUT 18:05/);
   assert.match(body, /Half Day:\n1\. Muskan - IN 11:05, OUT 18:00/);
 });
 
@@ -150,12 +152,14 @@ test("formatSalaryReport includes no OUT note and fine section", () => {
 test("locationDailyReport sends office-wise reports to configured managers", async () => {
   const messages = [];
   const attendance = {
-    async getDailyOfficeReport() {
+    async getDailyOfficeReport(_employees, _locations, dateKey) {
+      assert.equal(dateKey, "2026-07-31");
       return [
         {
           office: "Jasola Office",
           absent: ["Avi Kumar"],
           noOut: [{ name: "Aditya Shankar", inTime: "10:20" }],
+          late: [{ name: "Karan", inTime: "10:25", outTime: "18:05" }],
           halfDay: [{ name: "Muskan", inTime: "11:05", outTime: "" }],
         },
       ];
@@ -173,7 +177,61 @@ test("locationDailyReport sends office-wise reports to configured managers", asy
 
   assert.deepEqual(result, { sent: 1 });
   assert.equal(messages[0].to, "whatsapp:+919999999999");
+  assert.match(messages[0].body, /Date: 31\/07\/2026/);
   assert.match(messages[0].body, /Half Day:/);
+  assert.match(messages[0].body, /Late:/);
+});
+
+test("dailyReport sends the previous day's summary on the next morning", async () => {
+  let requestedDateKey;
+  const messages = [];
+  const attendance = {
+    async getDailyMap(_employees, dateKey) {
+      requestedDateKey = dateKey;
+      return new Map([
+        ["whatsapp:+910000000001", { name: "Jasola Employee", inTime: "10:20", outTime: "18:00", status: "Present", remarks: "", late: "Late" }],
+        ["whatsapp:+910000000002", { name: "Noida Employee", inTime: "10:20", outTime: "", status: "Present (no OUT)", remarks: "", late: "Late" }],
+      ]);
+    },
+  };
+  const jobs = createJobRunner({
+    config: createConfig({ adminNumber: "whatsapp:+919999999998" }),
+    attendance,
+    sendMessage: async (to, body) => messages.push({ to, body }),
+    now: () => new Date("2026-11-05T03:30:00.000Z"),
+    logger: { info() {} },
+  });
+
+  const result = await jobs.dailyReport();
+
+  assert.deepEqual(result, { sent: 1 });
+  assert.equal(requestedDateKey, "2026-11-04");
+  assert.equal(messages[0].to, "whatsapp:+919999999998");
+  assert.match(messages[0].body, /Attendance Report - 04\/11\/2026/);
+});
+
+test("dailyReport still runs on holidays because it reports the previous day", async () => {
+  let requestedDateKey;
+  const messages = [];
+  const attendance = {
+    async getDailyMap(_employees, dateKey) {
+      requestedDateKey = dateKey;
+      return new Map();
+    },
+  };
+  const jobs = createJobRunner({
+    config: createConfig({ holidays: new Set(["2026-11-05"]), adminNumber: "whatsapp:+919999999998" }),
+    attendance,
+    sendMessage: async (to, body) => messages.push({ to, body }),
+    now: () => new Date("2026-11-05T03:30:00.000Z"),
+    logger: { info() {} },
+  });
+
+  const result = await jobs.dailyReport();
+
+  assert.deepEqual(result, { sent: 1 });
+  assert.equal(requestedDateKey, "2026-11-04");
+  assert.equal(messages[0].to, "whatsapp:+919999999998");
 });
 
 test("salaryReport sends salary details to employees with salary configured", async () => {

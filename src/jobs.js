@@ -31,6 +31,18 @@ function numberedLines(items, formatter = (item) => item) {
   return items.map((item, index) => `${index + 1}. ${formatter(item)}`).join("\n");
 }
 
+function managerNumbersFor(config, office) {
+  const managers = config.officeManagers[office];
+  if (!managers) return [];
+  return Array.isArray(managers) ? managers : [managers];
+}
+
+function shiftDateKey(dateKey, deltaDays) {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  return date.toISOString().slice(0, 10);
+}
+
 function formatOfficeReport(report, day) {
   return [
     `Daily Attendance Report - ${report.office}`,
@@ -41,6 +53,9 @@ function formatOfficeReport(report, day) {
     "",
     "No OUT:",
     numberedLines(report.noOut, (item) => `${item.name} - IN ${item.inTime}`),
+    "",
+    "Late:",
+    numberedLines(report.late, (item) => `${item.name} - IN ${item.inTime}${item.outTime ? `, OUT ${item.outTime}` : ""}`),
     "",
     "Half Day:",
     numberedLines(report.halfDay, (item) => `${item.name} - IN ${item.inTime}${item.outTime ? `, OUT ${item.outTime}` : ""}`),
@@ -93,12 +108,12 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
     return results.length;
   }
 
-  async function runOnce(name, task, { requireWorkingDay = true } = {}) {
+  async function runOnce(name, task, { requireWorkingDay = true, skipOnHoliday = true } = {}) {
     const day = context();
     const key = `${name}:${day.dateKey}`;
     if (completedRuns.has(key)) return { skipped: "already-run", sent: 0 };
     if (requireWorkingDay && !isWorkingDay(day)) return { skipped: "non-working-day", sent: 0 };
-    if (!requireWorkingDay && isHoliday(day)) return { skipped: "holiday", sent: 0 };
+    if (skipOnHoliday && isHoliday(day)) return { skipped: "holiday", sent: 0 };
 
     const result = await task(day);
     completedRuns.add(key);
@@ -135,7 +150,8 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
 
     dailyReport: () =>
       runOnce("daily-report", async (day) => {
-        const daily = await attendance.getDailyMap(config.employees, day.dateKey);
+        const reportDateKey = shiftDateKey(day.dateKey, -1);
+        const daily = await attendance.getDailyMap(config.employees, reportDateKey);
         const present = [];
         const noOut = [];
         const absent = [];
@@ -150,29 +166,30 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
         }
 
         const body =
-          `*Attendance Report - ${displayDate(day.dateKey)}*\n\n` +
+          `*Attendance Report - ${displayDate(reportDateKey)}*\n\n` +
           `Present (${present.length}): ${present.join(", ") || "None"}\n\n` +
           `No OUT marked (${noOut.length}): ${noOut.join(", ") || "None"}\n\n` +
           `Absent (${absent.length}): ${absent.join(", ") || "None"}`;
 
         await sendMessage(config.adminNumber, body);
         return { sent: 1 };
-      }),
+      }, { requireWorkingDay: false, skipOnHoliday: false }),
 
     locationDailyReport: () =>
       runOnce("location-daily-report", async (day) => {
-        const reports = await attendance.getDailyOfficeReport(config.employees, config.employeeLocations, day.dateKey);
+        const reportDateKey = shiftDateKey(day.dateKey, -1);
+        const reports = await attendance.getDailyOfficeReport(config.employees, config.employeeLocations, reportDateKey);
         const messages = reports
-          .filter((report) => (config.officeManagers[report.office] || []).length > 0)
+          .filter((report) => managerNumbersFor(config, report.office).length > 0)
           .flatMap((report) =>
-            config.officeManagers[report.office].map((managerNumber) => ({
+            managerNumbersFor(config, report.office).map((managerNumber) => ({
               to: managerNumber,
-              body: formatOfficeReport(report, day),
+              body: formatOfficeReport(report, { dateKey: reportDateKey }),
             })),
           );
 
         return { sent: await sendAll(messages) };
-      }),
+      }, { requireWorkingDay: false, skipOnHoliday: false }),
 
     salaryReport: () =>
       runOnce(

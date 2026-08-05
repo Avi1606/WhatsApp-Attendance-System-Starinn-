@@ -378,20 +378,23 @@ test("getMonthlyReport counts present, absent, and missed OUT rows", async () =>
   assert.equal(report.rows.length, 3);
 });
 
-test("getDailyOfficeReport groups absent, no OUT, and half day by office", async () => {
+test("getDailyOfficeReport groups absent, no OUT, late, and half day by office", async () => {
   const employees = {
     [employee.id]: employee.name,
     "whatsapp:+910000000001": "Aditya Shankar",
     "whatsapp:+910000000002": "Muskan",
+    "whatsapp:+910000000003": "Ritika",
   };
   const locations = {
     [employee.id]: "Jasola Office",
     "whatsapp:+910000000001": "Jasola Office",
     "whatsapp:+910000000002": "Jasola Office",
+    "whatsapp:+910000000003": "Jasola Office",
   };
   const { store } = createStore([
     [...HEADER],
     ["Aditya Shankar", "2026-08-01", "10:20", "", "Present (no OUT)", "whatsapp:+910000000001", "SM1", "", "Late", "Jasola Office"],
+    ["Ritika", "2026-08-01", "10:30", "18:00", "Present", "whatsapp:+910000000003", "SM3", "", "Late", "Jasola Office"],
     ["Muskan", "2026-08-01", "11:05", "18:00", "Present", "whatsapp:+910000000002", "SM2", "Half Day", "", "Jasola Office"],
   ]);
 
@@ -400,6 +403,7 @@ test("getDailyOfficeReport groups absent, no OUT, and half day by office", async
   assert.equal(report.office, "Jasola Office");
   assert.deepEqual(report.absent, ["Avi Kumar"]);
   assert.deepEqual(report.noOut, [{ name: "Aditya Shankar", inTime: "10:20" }]);
+  assert.deepEqual(report.late, [{ name: "Aditya Shankar", inTime: "10:20", outTime: "" }, { name: "Ritika", inTime: "10:30", outTime: "18:00" }]);
   assert.deepEqual(report.halfDay, [{ name: "Muskan", inTime: "11:05", outTime: "18:00" }]);
 });
 
