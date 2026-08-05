@@ -163,11 +163,13 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
       runOnce("location-daily-report", async (day) => {
         const reports = await attendance.getDailyOfficeReport(config.employees, config.employeeLocations, day.dateKey);
         const messages = reports
-          .filter((report) => config.officeManagers[report.office])
-          .map((report) => ({
-            to: config.officeManagers[report.office],
-            body: formatOfficeReport(report, day),
-          }));
+          .filter((report) => (config.officeManagers[report.office] || []).length > 0)
+          .flatMap((report) =>
+            config.officeManagers[report.office].map((managerNumber) => ({
+              to: managerNumber,
+              body: formatOfficeReport(report, day),
+            })),
+          );
 
         return { sent: await sendAll(messages) };
       }),

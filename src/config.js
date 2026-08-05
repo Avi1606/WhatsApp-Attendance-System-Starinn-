@@ -95,11 +95,17 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
   const officeManagers = {};
   if (raw.officeManagers !== undefined) {
     if (!raw.officeManagers || typeof raw.officeManagers !== "object" || Array.isArray(raw.officeManagers)) {
-      throw new Error("officeManagers must be an object mapping office location to WhatsApp number");
+      throw new Error("officeManagers must be an object mapping office location to an array of WhatsApp numbers");
     }
 
-    for (const [office, phone] of Object.entries(raw.officeManagers)) {
-      officeManagers[requireString(office, "office manager location")] = requireWhatsAppNumber(phone, `manager phone for ${office}`);
+    for (const [office, phones] of Object.entries(raw.officeManagers)) {
+      const officeLabel = requireString(office, "office manager location");
+      const phoneList = Array.isArray(phones) ? phones : [phones];
+      if (phoneList.length === 0) {
+        throw new Error(`officeManagers for ${officeLabel} must have at least one manager`);
+      }
+
+      officeManagers[officeLabel] = phoneList.map((phone) => requireWhatsAppNumber(phone, `manager phone for ${officeLabel}`));
     }
   }
 
