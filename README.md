@@ -146,6 +146,14 @@ Office-wise senior reports use `officeManagers` from `config.json`:
 }
 ```
 
+If Twilio returns `Error 63016: Outside messaging window`, configure an approved WhatsApp content template SID for scheduled jobs:
+
+```json
+"scheduledWhatsAppContentSid": "HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+When set, the bot sends scheduled report text through that template using a single template variable. This is required for proactive WhatsApp messages that are outside the 24-hour customer care window.
+
 Salary report cycle is from the 20th to the 20th. For example, if the job runs on August 26, it reports July 20 to August 20. The salary report can read optional sheet columns named `Salary` or `Monthly Salary`, `Max Leaves`, and `Fine`. You can also keep salary/fine values in `config.json`:
 
 ```json

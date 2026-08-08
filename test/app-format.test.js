@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { formatAttendanceMarked, formatTime12, formatWelcome } = require("../src/app");
+const { createSendMessage, formatAttendanceMarked, formatTime12, formatWelcome } = require("../src/app");
 
 test("formatTime12 converts 24-hour time to readable WhatsApp time", () => {
   assert.equal(formatTime12("00:05"), "12:05 am");
@@ -38,4 +38,30 @@ test("formatAttendanceMarked creates plain attendance reply for admin usage", ()
       "Time: 11:49 am",
     ].join("\n"),
   );
+});
+
+test("createSendMessage uses a WhatsApp content template when configured", async () => {
+  const calls = [];
+  const sendMessage = createSendMessage({
+    twilioClient: {
+      messages: {
+        create: async (options) => {
+          calls.push(options);
+          return { sid: "SM123" };
+        },
+      },
+    },
+    fromNumber: "whatsapp:+10000000000",
+    contentSid: "HX1234567890",
+    logger: { log() {} },
+  });
+
+  await sendMessage("whatsapp:+910000000001", "Daily Attendance Report - Noida Office");
+
+  assert.deepEqual(calls[0], {
+    from: "whatsapp:+10000000000",
+    to: "whatsapp:+910000000001",
+    contentSid: "HX1234567890",
+    contentVariables: JSON.stringify({ 1: "Daily Attendance Report - Noida Office" }),
+  });
 });

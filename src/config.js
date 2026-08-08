@@ -112,6 +112,10 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
   const employeeSalaries = optionalMoneyMap(raw.employeeSalaries, normalizedEmployees, "employeeSalaries");
   const employeeFines = optionalMoneyMap(raw.employeeFines, normalizedEmployees, "employeeFines");
 
+  const scheduledWhatsAppContentSid = raw.scheduledWhatsAppContentSid === undefined
+    ? ""
+    : requireString(raw.scheduledWhatsAppContentSid, "scheduledWhatsAppContentSid");
+
   const admins = new Set((raw.admins || []).map((phone) => requireWhatsAppNumber(phone, "admin phone")));
   for (const phone of admins) {
     if (!normalizedEmployees[phone]) throw new Error(`Admin is not an employee: ${phone}`);
@@ -149,6 +153,7 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
     officeManagers: Object.freeze(officeManagers),
     employeeSalaries: Object.freeze(employeeSalaries),
     employeeFines: Object.freeze(employeeFines),
+    scheduledWhatsAppContentSid,
     timezone,
     workingWeekdays: new Set(workingWeekdays),
     holidays,

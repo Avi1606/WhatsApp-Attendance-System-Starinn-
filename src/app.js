@@ -26,13 +26,21 @@ function emptyTwiml() {
   return new twilio.twiml.MessagingResponse().toString();
 }
 
-function createSendMessage({ twilioClient, fromNumber, logger = console }) {
+function createSendMessage({ twilioClient, fromNumber, contentSid = "", logger = console }) {
   return async function sendMessage(to, body) {
-    const message = await twilioClient.messages.create({
+    const messageOptions = {
       from: fromNumber,
       to,
-      body,
-    });
+    };
+
+    if (contentSid) {
+      messageOptions.contentSid = contentSid;
+      messageOptions.contentVariables = JSON.stringify({ 1: body });
+    } else {
+      messageOptions.body = body;
+    }
+
+    const message = await twilioClient.messages.create(messageOptions);
 
     logger.log(`Sent WhatsApp message ${message.sid || ""} to ${maskPhone(to)}`);
     return message;
@@ -222,6 +230,7 @@ function createApp({
   const sendMessage = createSendMessage({
     twilioClient,
     fromNumber: config.twilioFromNumber,
+    contentSid: config.scheduledWhatsAppContentSid,
     logger,
   });
 
