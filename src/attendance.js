@@ -396,7 +396,7 @@ class AttendanceStore {
           inTime: row[2] || "",
           outTime: row[3] || "",
           status: statusFor(row[2] || "", row[3] || ""),
-          remarks: row[7] || remarksFor(row[2] || "", row[3] || ""),
+          remarks: row[7] || "",
           late: row[8] || "",
           officeLocation: row[9] || "",
         });
@@ -502,7 +502,7 @@ class AttendanceStore {
 
           const inTime = row[2] || "";
           const outTime = row[3] || "";
-          const remarks = row[7] || remarksFor(inTime, outTime);
+          const remarks = row[7] || "";
           const late = row[8] || "";
 
           if (!inTime) absentDays += 1;
