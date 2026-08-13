@@ -33,15 +33,15 @@ test("markAttendance creates header and marks first IN", async () => {
   assert.deepEqual(sheets.rows[0], HEADER);
   assert.deepEqual(sheets.rows[1], [
     "Avi Kumar",
+    "Delhi Office",
     "2026-07-06",
     "10:30",
     "",
     "Present (no OUT)",
-    "whatsapp:+910000000000",
-    "SM1",
     "",
     "Late",
-    "Delhi Office",
+    "whatsapp:+910000000000",
+    "SM1",
   ]);
 });
 
@@ -98,15 +98,15 @@ test("markAttendance updates OUT on the same row", async () => {
   assert.equal(sheets.rows.length, 2);
   assert.deepEqual(sheets.rows[1], [
     "Avi Kumar",
+    "Delhi Office",
     "2026-07-06",
     "10:30",
     "18:30",
     "Present",
-    "whatsapp:+910000000000",
-    "SM2",
     "",
     "Late",
-    "Delhi Office",
+    "whatsapp:+910000000000",
+    "SM2",
   ]);
 });
 
@@ -121,9 +121,9 @@ test("markAttendance marks late for IN after 10:15 AM", async () => {
     messageSid: "SM1",
   });
 
-  assert.equal(sheets.rows[1][7], "");
-  assert.equal(sheets.rows[1][8], "Late");
-  assert.equal(sheets.rows[1][9], "Delhi Office");
+  assert.equal(sheets.rows[1][6], "");
+  assert.equal(sheets.rows[1][7], "Late");
+  assert.equal(sheets.rows[1][1], "Delhi Office");
 });
 
 test("markAttendance marks half day for late IN after 11 AM", async () => {
@@ -137,8 +137,8 @@ test("markAttendance marks half day for late IN after 11 AM", async () => {
     messageSid: "SM1",
   });
 
-  assert.equal(sheets.rows[1][7], "Half Day");
-  assert.equal(sheets.rows[1][8], "");
+  assert.equal(sheets.rows[1][6], "Half Day");
+  assert.equal(sheets.rows[1][7], "");
 });
 
 test("markAttendance marks half day for OUT before 5 PM", async () => {
@@ -158,8 +158,8 @@ test("markAttendance marks half day for OUT before 5 PM", async () => {
     messageSid: "SM2",
   });
 
-  assert.equal(sheets.rows[1][7], "Half Day");
-  assert.equal(sheets.rows[1][8], "");
+  assert.equal(sheets.rows[1][6], "Half Day");
+  assert.equal(sheets.rows[1][7], "");
 });
 
 test("markAttendance does not mark late or half day for time-exempt employees", async () => {
@@ -180,14 +180,14 @@ test("markAttendance does not mark late or half day for time-exempt employees", 
     messageSid: "SM2",
   });
 
+  assert.equal(sheets.rows[1][6], "");
   assert.equal(sheets.rows[1][7], "");
-  assert.equal(sheets.rows[1][8], "");
 });
 
 test("markAttendance finds IN rows even when Google formats date without leading zero", async () => {
   const { sheets, store } = createStore([
     [...HEADER],
-    [employee.name, "8/7/2026", "10:30", "", "Present (no OUT)", employee.id, "SM1"],
+    [employee.name, "Delhi Office", "8/7/2026", "10:30", "", "Present (no OUT)", "", "", employee.id, "SM1"],
   ]);
 
   const result = await store.markAttendance({
@@ -199,13 +199,13 @@ test("markAttendance finds IN rows even when Google formats date without leading
   });
 
   assert.equal(result.ok, true);
-  assert.equal(sheets.rows[1][3], "18:30");
+  assert.equal(sheets.rows[1][4], "18:30");
 });
 
 test("markAttendance matches old rows with trimmed lowercase employee names", async () => {
   const { sheets, store } = createStore([
     [...HEADER],
-    [" avi kumar ", "2026-07-08", "10:30", "", "Present (no OUT)", "", "SM1"],
+    [" avi kumar ", "Delhi Office", "2026-07-08", "10:30", "", "Present (no OUT)", "", "", "", "SM1"],
   ]);
 
   const result = await store.markAttendance({
@@ -217,13 +217,13 @@ test("markAttendance matches old rows with trimmed lowercase employee names", as
   });
 
   assert.equal(result.ok, true);
-  assert.equal(sheets.rows[1][3], "18:30");
+  assert.equal(sheets.rows[1][4], "18:30");
 });
 
 test("markAttendance does not close another date's open IN row", async () => {
   const { sheets, store } = createStore([
     [...HEADER],
-    [employee.name, "2026-07-07", "10:30", "", "Present (no OUT)", employee.id, "SM1"],
+    [employee.name, "Delhi Office", "2026-07-07", "10:30", "", "Present (no OUT)", "", "", employee.id, "SM1"],
   ]);
 
   const result = await store.markAttendance({
@@ -235,13 +235,13 @@ test("markAttendance does not close another date's open IN row", async () => {
   });
 
   assert.deepEqual(result, { ok: false, reason: "out_before_in" });
-  assert.equal(sheets.rows[1][3], "");
+  assert.equal(sheets.rows[1][4], "");
 });
 
 test("markAttendance never overwrites an existing IN or OUT for the same date", async () => {
   const { sheets, store } = createStore([
     [...HEADER],
-    [employee.name, "2026-07-08", "10:30", "18:30", "Present", employee.id, "SM1"],
+    [employee.name, "Delhi Office", "2026-07-08", "10:30", "18:30", "Present", "", "", employee.id, "SM1"],
   ]);
 
   const duplicateIn = await store.markAttendance({
@@ -262,15 +262,15 @@ test("markAttendance never overwrites an existing IN or OUT for the same date", 
   assert.equal(duplicateIn.reason, "already_marked");
   assert.equal(duplicateOut.reason, "already_marked");
   assert.equal(sheets.rows.length, 2);
-  assert.equal(sheets.rows[1][2], "10:30");
-  assert.equal(sheets.rows[1][3], "18:30");
+  assert.equal(sheets.rows[1][3], "10:30");
+  assert.equal(sheets.rows[1][4], "18:30");
 });
 
 test("markAttendance prefers real attendance row over duplicate absent row for the same date", async () => {
   const { sheets, store } = createStore([
     [...HEADER],
-    [employee.name, "07/08/2026", "", "", "Absent", employee.id, ""],
-    [employee.name, "07/08/2026", "12:23", "", "Present (no OUT)", employee.id, "SM1"],
+    [employee.name, "Delhi Office", "07/08/2026", "", "", "Absent", "", "", employee.id, ""],
+    [employee.name, "Delhi Office", "07/08/2026", "12:23", "", "Present (no OUT)", "", "", employee.id, "SM1"],
   ]);
 
   const duplicateIn = await store.markAttendance({
@@ -290,15 +290,15 @@ test("markAttendance prefers real attendance row over duplicate absent row for t
 
   assert.equal(duplicateIn.reason, "already_marked");
   assert.equal(out.ok, true);
-  assert.equal(sheets.rows[1][2], "");
-  assert.equal(sheets.rows[2][2], "12:23");
-  assert.equal(sheets.rows[2][3], "18:30");
+  assert.equal(sheets.rows[1][3], "");
+  assert.equal(sheets.rows[2][3], "12:23");
+  assert.equal(sheets.rows[2][4], "18:30");
 });
 
 test("markAbsent skips employees whose present row is displayed as month/day/year", async () => {
   const { sheets, store } = createStore([
     [...HEADER],
-    [employee.name, "07/08/2026", "12:23", "18:30", "Present", employee.id, "SM1"],
+    [employee.name, "Delhi Office", "07/08/2026", "12:23", "18:30", "Present", "", "", employee.id, "SM1"],
   ]);
 
   const marked = await store.markAbsent(
@@ -315,14 +315,14 @@ test("markAbsent skips employees whose present row is displayed as month/day/yea
 
   assert.equal(marked, 1);
   assert.equal(sheets.rows.filter((row) => row[0] === employee.name).length, 1);
-  assert.equal(sheets.rows.some((row) => row[0] === "Other Employee" && row[4] === "Absent"), true);
-  assert.equal(sheets.rows.find((row) => row[0] === "Other Employee")[9], "Noida Office");
+  assert.equal(sheets.rows.some((row) => row[0] === "Other Employee" && row[5] === "Absent"), true);
+  assert.equal(sheets.rows.find((row) => row[0] === "Other Employee")[1], "Noida Office");
 });
 
 test("markAttendance inserts newest rows directly below the header", async () => {
   const { sheets, store } = createStore([
     [...HEADER],
-    ["Older Employee", "2026-07-05", "10:00", "", "Present (no OUT)", "whatsapp:+910000000001", "OLD"],
+    ["Older Employee", "Noida Office", "2026-07-05", "10:00", "", "Present (no OUT)", "", "", "whatsapp:+910000000001", "OLD"],
   ]);
 
   await store.markAttendance({
@@ -358,15 +358,15 @@ test("markAttendance is idempotent by Twilio message SID", async () => {
 
   assert.equal(duplicate.reason, "already_processed");
   assert.equal(sheets.rows.length, 2);
-  assert.equal(sheets.rows[1][2], "10:30");
+  assert.equal(sheets.rows[1][3], "10:30");
 });
 
 test("getMonthlyReport counts present, absent, and missed OUT rows", async () => {
   const { store } = createStore([
     [...HEADER],
-    [employee.name, "2026-07-01", "10:00", "18:00", "Present", employee.id, "SM1"],
-    [employee.name, "2026-07-02", "10:00", "", "Present (no OUT)", employee.id, "SM2"],
-    [employee.name, "2026-07-03", "", "", "Absent", employee.id, ""],
+    [employee.name, "Delhi Office", "2026-07-01", "10:00", "18:00", "Present", "", "", employee.id, "SM1"],
+    [employee.name, "Delhi Office", "2026-07-02", "10:00", "", "Present (no OUT)", "", "", employee.id, "SM2"],
+    [employee.name, "Delhi Office", "2026-07-03", "", "", "Absent", "", "", employee.id, ""],
   ]);
 
   const report = await store.getMonthlyReport(employee, "2026-07");
@@ -393,9 +393,9 @@ test("getDailyOfficeReport groups absent, no OUT, late, and half day by office",
   };
   const { store } = createStore([
     [...HEADER],
-    ["Aditya Shankar", "2026-08-01", "10:20", "", "Present (no OUT)", "whatsapp:+910000000001", "SM1", "", "Late", "Jasola Office"],
-    ["Ritika", "2026-08-01", "10:30", "18:00", "Present", "whatsapp:+910000000003", "SM3", "", "Late", "Jasola Office"],
-    ["Muskan", "2026-08-01", "11:05", "18:00", "Present", "whatsapp:+910000000002", "SM2", "Half Day", "", "Jasola Office"],
+    ["Aditya Shankar", "Jasola Office", "2026-08-01", "10:20", "", "Present (no OUT)", "", "Late", "whatsapp:+910000000001", "SM1"],
+    ["Ritika", "Jasola Office", "2026-08-01", "10:30", "18:00", "Present", "", "Late", "whatsapp:+910000000003", "SM3"],
+    ["Muskan", "Jasola Office", "2026-08-01", "11:05", "18:00", "Present", "Half Day", "", "whatsapp:+910000000002", "SM2"],
   ]);
 
   const [report] = await store.getDailyOfficeReport(employees, locations, "2026-08-01");
@@ -411,10 +411,10 @@ test("getSalaryReport counts no OUT as unpaid and reads max leaves, salary, and 
   const salaryHeader = [...HEADER, "Max Leaves", "Salary", "Fine"];
   const { store } = createStore([
     salaryHeader,
-    [employee.name, "2026-07-20", "10:00", "18:00", "Present", employee.id, "SM1", "", "", "Delhi Office", "1", "31000", "500"],
-    [employee.name, "2026-07-21", "10:00", "", "Present (no OUT)", employee.id, "SM2", "", "", "Delhi Office", "1", "31000", "500"],
-    [employee.name, "2026-07-22", "", "", "Absent", employee.id, "", "", "", "Delhi Office", "1", "31000", "500"],
-    [employee.name, "2026-07-23", "", "", "Absent", employee.id, "", "", "", "Delhi Office", "1", "31000", "500"],
+    [employee.name, "Delhi Office", "2026-07-20", "10:00", "18:00", "Present", "", "", employee.id, "SM1", "1", "31000", "500"],
+    [employee.name, "Delhi Office", "2026-07-21", "10:00", "", "Present (no OUT)", "", "", employee.id, "SM2", "1", "31000", "500"],
+    [employee.name, "Delhi Office", "2026-07-22", "", "", "Absent", "", "", employee.id, "", "1", "31000", "500"],
+    [employee.name, "Delhi Office", "2026-07-23", "", "", "Absent", "", "", employee.id, "", "1", "31000", "500"],
   ]);
 
   const [report] = await store.getSalaryReport({
@@ -451,7 +451,7 @@ test("getSalaryReport reads already-calculated salary sheet columns", async () =
   const sheets = createFakeSheets({
     Attendance: [
       [...HEADER],
-      [employee.name, "2026-07-21", "10:00", "", "Present (no OUT)", employee.id, "SM1", "", "", employee.location],
+      [employee.name, "Delhi Office", "2026-07-21", "10:00", "", "Present (no OUT)", "", "", employee.id, "SM1"],
     ],
     Salary: [
       salaryHeader,

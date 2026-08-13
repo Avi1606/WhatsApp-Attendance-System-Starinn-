@@ -2,7 +2,7 @@
 
 const { normalizeDate, normalizeMonthFirstDate, sheetDateMatches } = require("./time");
 
-const HEADER = ["Name", "Date", "IN", "OUT", "Status", "Employee ID", "Last Message SID", "Remarks", "Late", "Office Location"];
+const HEADER = ["Name", "Office Location", "Date", "IN", "OUT", "Status", "Remarks", "Late", "Employee ID", "Last Message SID"];
 const ACTIONS = new Set(["IN", "OUT"]);
 const LATE_IN_AFTER = "10:15";
 const HALF_DAY_IN_AFTER = "11:00";
@@ -154,7 +154,7 @@ class AttendanceStore {
   }
 
   rowMatchesEmployee(row, employee) {
-    const rowEmployeeId = normalizeText(row[5]);
+    const rowEmployeeId = normalizeText(row[8]);
     const employeeId = normalizeText(employee.id);
     if (rowEmployeeId && employeeId) return rowEmployeeId === employeeId;
 
@@ -167,10 +167,10 @@ class AttendanceStore {
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       if (
         this.rowMatchesEmployee(rows[index], employee) &&
-        sheetDateMatches(rows[index][1], dateKey)
+        sheetDateMatches(rows[index][2], dateKey)
       ) {
         if (fallbackIndex === -1) fallbackIndex = index;
-        if (rows[index][2] || rows[index][3]) return index;
+        if (rows[index][3] || rows[index][4]) return index;
       }
     }
 
@@ -180,7 +180,7 @@ class AttendanceStore {
   findLatestOpenInRow(rows, employee) {
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       const row = rows[index];
-      if (this.rowMatchesEmployee(row, employee) && row[2] && !row[3]) {
+      if (this.rowMatchesEmployee(row, employee) && row[3] && !row[4]) {
         return index;
       }
     }
@@ -192,9 +192,9 @@ class AttendanceStore {
       const row = rows[index];
       if (
         this.rowMatchesEmployee(row, employee) &&
-        sheetDateMatches(row[1], dateKey) &&
-        row[2] &&
-        !row[3]
+        sheetDateMatches(row[2], dateKey) &&
+        row[3] &&
+        !row[4]
       ) {
         return index;
       }
@@ -262,13 +262,13 @@ class AttendanceStore {
       const start = this.dataStart(rows);
 
       if (messageSid) {
-        const duplicateIndex = rows.findIndex((row, index) => index >= start && row[6] === messageSid);
+        const duplicateIndex = rows.findIndex((row, index) => index >= start && row[9] === messageSid);
         if (duplicateIndex !== -1) {
           const duplicateRow = rows[duplicateIndex];
           return {
             ok: false,
             reason: "already_processed",
-            time: action === "IN" ? duplicateRow[2] : duplicateRow[3],
+            time: action === "IN" ? duplicateRow[3] : duplicateRow[4],
           };
         }
       }
@@ -282,15 +282,15 @@ class AttendanceStore {
         if (action === "OUT") return { ok: false, reason: "out_before_in" };
 
         const notes = attendanceNotesFor(employee, time);
-        const row = [employee.name, dateKey, time, "", statusFor(time, ""), employee.id, messageSid, notes.remarks, notes.late, employee.location || ""];
+        const row = [employee.name, employee.location || "", dateKey, time, "", statusFor(time, ""), notes.remarks, notes.late, employee.id, messageSid];
         await this.insertRowsAtTop([row]);
         this.invalidate();
         return { ok: true, action };
       }
 
       const existing = rows[rowIndex];
-      const inTime = existing[2] || "";
-      const outTime = existing[3] || "";
+      const inTime = existing[3] || "";
+      const outTime = existing[4] || "";
 
       if (action === "IN" && inTime) {
         return { ok: false, reason: "already_marked", action, time: inTime };
@@ -305,15 +305,15 @@ class AttendanceStore {
       const notes = attendanceNotesFor(employee, newIn, newOut);
       const updated = [
         employee.name,
+        employee.location || existing[1] || "",
         dateKey,
         newIn,
         newOut,
         statusFor(newIn, newOut),
-        employee.id,
-        messageSid,
         notes.remarks,
         notes.late,
-        employee.location || existing[9] || "",
+        employee.id,
+        messageSid,
       ];
 
       await this.sheets.spreadsheets.values.update({
@@ -336,9 +336,9 @@ class AttendanceStore {
     return {
       exists: true,
       found: true,
-      inTime: row[2] || "",
-      outTime: row[3] || "",
-      status: statusFor(row[2] || "", row[3] || ""),
+      inTime: row[3] || "",
+      outTime: row[4] || "",
+      status: statusFor(row[3] || "", row[4] || ""),
     };
   }
 
@@ -353,18 +353,18 @@ class AttendanceStore {
 
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       const row = rows[index];
-      const candidateDateKey = normalizeMonthFirstDate(row[1]) || normalizeDate(row[1]);
+      const candidateDateKey = normalizeMonthFirstDate(row[2]) || normalizeDate(row[2]);
       if (!this.rowMatchesEmployee(row, employee) || !candidateDateKey?.startsWith(monthKey)) continue;
 
-      if (row[2] && row[3]) present += 1;
-      else if (row[2]) noOut += 1;
+      if (row[3] && row[4]) present += 1;
+      else if (row[3]) noOut += 1;
       else absent += 1;
 
       reportRows.push({
         dateKey: candidateDateKey,
-        inTime: row[2] || "",
-        outTime: row[3] || "",
-        status: statusFor(row[2] || "", row[3] || ""),
+        inTime: row[3] || "",
+        outTime: row[4] || "",
+        status: statusFor(row[3] || "", row[4] || ""),
       });
     }
 
@@ -393,12 +393,12 @@ class AttendanceStore {
         const row = rows[index];
         result.set(id, {
           name,
-          inTime: row[2] || "",
-          outTime: row[3] || "",
-          status: statusFor(row[2] || "", row[3] || ""),
-          remarks: row[7] || "",
-          late: row[8] || "",
-          officeLocation: row[9] || "",
+          inTime: row[3] || "",
+          outTime: row[4] || "",
+          status: statusFor(row[3] || "", row[4] || ""),
+          remarks: row[6] || "",
+          late: row[7] || "",
+          officeLocation: row[1] || "",
         });
       }
     }
@@ -487,7 +487,7 @@ class AttendanceStore {
       if (!foundSalaryRow) {
         for (let index = this.dataStart(attendanceRows); index < attendanceRows.length; index += 1) {
           const row = attendanceRows[index];
-          const candidateDateKey = normalizeMonthFirstDate(row[1]) || normalizeDate(row[1]);
+          const candidateDateKey = normalizeMonthFirstDate(row[2]) || normalizeDate(row[2]);
           if (!this.rowMatchesEmployee(row, { id, name }) || !candidateDateKey) continue;
           if (candidateDateKey < startDateKey || candidateDateKey > endDateKey) continue;
 
@@ -500,10 +500,10 @@ class AttendanceStore {
             configuredPerDaySalary || moneyNumber(cellByHeaders(row, attendanceHeaders, ["Per Day Salary", "Per-Day Salary", "Daily Salary"]));
           fine = Math.max(fine, moneyNumber(cellByHeaders(row, attendanceHeaders, ["Fine", "Penalty"])));
 
-          const inTime = row[2] || "";
-          const outTime = row[3] || "";
-          const remarks = row[7] || "";
-          const late = row[8] || "";
+          const inTime = row[3] || "";
+          const outTime = row[4] || "";
+          const remarks = row[6] || "";
+          const late = row[7] || "";
 
           if (!inTime) absentDays += 1;
           else if (!outTime) noOutDays += 1;
@@ -515,12 +515,12 @@ class AttendanceStore {
       } else if (!noOutDays) {
         for (let index = this.dataStart(attendanceRows); index < attendanceRows.length; index += 1) {
           const row = attendanceRows[index];
-          const candidateDateKey = normalizeMonthFirstDate(row[1]) || normalizeDate(row[1]);
+          const candidateDateKey = normalizeMonthFirstDate(row[2]) || normalizeDate(row[2]);
           if (!this.rowMatchesEmployee(row, { id, name }) || !candidateDateKey) continue;
           if (candidateDateKey < startDateKey || candidateDateKey > endDateKey) continue;
 
-          const inTime = row[2] || "";
-          const outTime = row[3] || "";
+          const inTime = row[3] || "";
+          const outTime = row[4] || "";
           if (inTime && !outTime) noOutDays += 1;
         }
       }
@@ -566,7 +566,7 @@ class AttendanceStore {
       for (const [id, name] of Object.entries(employees)) {
         const employee = { id, name, location: employeeLocations[id] || "" };
         if (this.findAttendanceRow(rows, employee, dateKey) === -1) {
-          absentRows.push([name, dateKey, "", "", statusFor("", ""), id, "", "", "", employee.location]);
+          absentRows.push([name, employee.location, dateKey, "", "", statusFor("", ""), "", "", id, ""]);
         }
       }
 
