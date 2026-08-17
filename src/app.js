@@ -26,24 +26,113 @@ function emptyTwiml() {
   return new twilio.twiml.MessagingResponse().toString();
 }
 
-function createSendMessage({ twilioClient, fromNumber, contentSid = "", logger = console }) {
-  return async function sendMessage(to, body) {
-    const messageOptions = {
-      from: fromNumber,
-      to,
-    };
+function chunkMessage(body, maxLength = 1500) {
+  const text = String(body || "");
+  if (text.length <= maxLength) {
+    return [text];
+  }
 
-    if (contentSid) {
-      messageOptions.contentSid = contentSid;
-      messageOptions.contentVariables = JSON.stringify({ 1: body });
-    } else {
-      messageOptions.body = body;
+  const lines = text.split("\n");
+  const rawChunks = [];
+  let currentChunkLines = [];
+  let currentLength = 0;
+
+  for (const line of lines) {
+    if (line.length > maxLength) {
+      if (currentChunkLines.length > 0) {
+        rawChunks.push(currentChunkLines.join("\n"));
+        currentChunkLines = [];
+        currentLength = 0;
+      }
+      let remaining = line;
+      while (remaining.length > 0) {
+        rawChunks.push(remaining.slice(0, maxLength));
+        remaining = remaining.slice(maxLength);
+      }
+      continue;
     }
 
-    const message = await twilioClient.messages.create(messageOptions);
+    const lineLen = line.length;
+    const addedLen = (currentChunkLines.length > 0 ? 1 : 0) + lineLen;
+    if (currentLength + addedLen > maxLength) {
+      rawChunks.push(currentChunkLines.join("\n"));
+      currentChunkLines = [line];
+      currentLength = lineLen;
+    } else {
+      currentChunkLines.push(line);
+      currentLength += addedLen;
+    }
+  }
 
-    logger.log(`Sent WhatsApp message ${message.sid || ""} to ${maskPhone(to)}`);
-    return message;
+  if (currentChunkLines.length > 0) {
+    rawChunks.push(currentChunkLines.join("\n"));
+  }
+
+  if (rawChunks.length <= 1) {
+    return rawChunks;
+  }
+
+  const total = rawChunks.length;
+  return rawChunks.map((chunk, index) => {
+    const partTag = `(Part ${index + 1}/${total})`;
+    const firstLineEnd = chunk.indexOf("\n");
+    if (firstLineEnd !== -1) {
+      const firstLine = chunk.slice(0, firstLineEnd);
+      const rest = chunk.slice(firstLineEnd);
+      return `${firstLine} ${partTag}${rest}`;
+    }
+    return `${chunk} ${partTag}`;
+  });
+}
+
+function createSendMessage({ twilioClient, fromNumber, contentSid = "", logger = console }) {
+  return async function sendMessage(to, body) {
+    const chunks = chunkMessage(body, 1500);
+    const sentMessages = [];
+
+    for (const chunk of chunks) {
+      const sendOptions = (useContentSid) => {
+        const messageOptions = { from: fromNumber, to };
+        if (useContentSid && contentSid) {
+          messageOptions.contentSid = contentSid;
+          messageOptions.contentVariables = JSON.stringify({ 1: chunk });
+        } else {
+          messageOptions.body = chunk;
+        }
+        return messageOptions;
+      };
+
+      let message;
+      try {
+        if (contentSid) {
+          message = await twilioClient.messages.create(sendOptions(true));
+        } else {
+          message = await twilioClient.messages.create(sendOptions(false));
+        }
+      } catch (error) {
+        const is63016 =
+          error?.code === 63016 ||
+          error?.status === 63016 ||
+          /63016|outside messaging window/i.test(String(error?.message || ""));
+
+        if (is63016 && contentSid) {
+          logger.warn?.(`Retrying WhatsApp message to ${maskPhone(to)} with Content SID due to Error 63016`);
+          message = await twilioClient.messages.create(sendOptions(true));
+        } else if (is63016 && !contentSid) {
+          logger.error?.(
+            `Error 63016: Cannot send message to ${maskPhone(to)} outside 24h window without scheduledWhatsAppContentSid`,
+          );
+          throw error;
+        } else {
+          throw error;
+        }
+      }
+
+      logger.log?.(`Sent WhatsApp message ${message?.sid || ""} to ${maskPhone(to)}`);
+      sentMessages.push(message);
+    }
+
+    return sentMessages.length === 1 ? sentMessages[0] : sentMessages;
   };
 }
 
@@ -457,6 +546,7 @@ function createApp({
 module.exports = {
   createApp,
   createSendMessage,
+  chunkMessage,
   maskPhone,
   parseAdminMarkCommand,
   safeEqual,

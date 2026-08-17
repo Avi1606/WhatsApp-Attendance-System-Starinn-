@@ -131,7 +131,7 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
     throw new Error(`Invalid IANA timezone: ${timezone}`);
   }
 
-  const workingWeekdays = raw.workingWeekdays || ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const workingWeekdays = raw.workingWeekdays || ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   if (!Array.isArray(workingWeekdays) || workingWeekdays.some((day) => !["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day))) {
     throw new Error("workingWeekdays must contain three-letter weekday names such as Mon");
   }

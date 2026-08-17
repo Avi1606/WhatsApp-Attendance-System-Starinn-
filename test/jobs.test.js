@@ -271,3 +271,51 @@ test("salaryReport sends salary details to employees with salary configured", as
   assert.match(messages[0].body, /Cycle: 20\/07\/2026 to 20\/08\/2026/);
   assert.match(messages[0].body, /No OUT marked days: 1/);
 });
+
+test("locationDailyReport and dailyReport run on Monday morning to report Sunday attendance", async () => {
+  let requestedLocationDateKey;
+  let requestedDailyDateKey;
+  const messages = [];
+  const attendance = {
+    async getDailyOfficeReport(_employees, _locations, dateKey) {
+      requestedLocationDateKey = dateKey;
+      return [
+        {
+          office: "Jasola Office",
+          absent: ["Varsha Nathani"],
+          noOut: [],
+          late: [],
+          halfDay: [],
+        },
+      ];
+    },
+    async getDailyMap(_employees, dateKey) {
+      requestedDailyDateKey = dateKey;
+      return new Map([
+        ["whatsapp:+910000000001", { name: "Jasola Employee", inTime: "10:00", outTime: "18:00", status: "Present", remarks: "", late: "" }],
+      ]);
+    },
+  };
+  // 2026-08-17 is a Monday. Job running on Monday morning reports 2026-08-16 (Sunday).
+  const jobs = createJobRunner({
+    config: createConfig({
+      officeManagers: { "Jasola Office": "whatsapp:+918780901324" },
+      adminNumber: "whatsapp:+918780901324",
+    }),
+    attendance,
+    sendMessage: async (to, body) => messages.push({ to, body }),
+    now: () => new Date("2026-08-17T03:30:00.000Z"), // Monday morning in UTC
+    logger: { info() {} },
+  });
+
+  const locationResult = await jobs.locationDailyReport();
+  const dailyResult = await jobs.dailyReport();
+
+  assert.deepEqual(locationResult, { sent: 1 });
+  assert.deepEqual(dailyResult, { sent: 1 });
+  assert.equal(requestedLocationDateKey, "2026-08-16");
+  assert.equal(requestedDailyDateKey, "2026-08-16");
+  assert.match(messages[0].body, /Date: 16\/08\/2026/);
+  assert.match(messages[1].body, /Attendance Report - 16\/08\/2026/);
+});
+
