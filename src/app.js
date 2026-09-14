@@ -3,6 +3,7 @@ const express = require("express");
 const twilio = require("twilio");
 const { google } = require("googleapis");
 const { AttendanceStore } = require("./attendance");
+const { StaffStore } = require("./staff");
 const { createJobRunner } = require("./jobs");
 const { displayDate, normalizeDate, zonedDateTime } = require("./time");
 
@@ -197,6 +198,9 @@ function formatWelcome(employeeName, { isAdmin = false, reportsEnabled = false }
     lines.push("mark in <employee name>");
     lines.push("mark out <employee name>");
     lines.push("mark in <employee name> DD/MM/YYYY");
+    lines.push("refresh staff");
+    lines.push("staff status");
+    lines.push("staff left <employee name> [DD/MM/YYYY]");
   }
 
   return lines.join("\n");
@@ -276,6 +280,18 @@ function parseAdminMarkCommand(message) {
   };
 }
 
+function parseStaffLeftCommand(message) {
+  const match = String(message || "").match(
+    /^staff\s+left\s+(.+?)(?:\s+(\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}))?$/i,
+  );
+  if (!match) return null;
+
+  return {
+    name: match[1].trim(),
+    leftDate: match[2] || null,
+  };
+}
+
 async function createSheetsClient(googleAuth) {
   const auth =
     googleAuth ||
@@ -306,12 +322,24 @@ function createApp({
 
   app.use(express.urlencoded({ extended: false, limit: "16kb" }));
 
-  const attendancePromise = Promise.resolve(sheets || createSheetsClient(googleAuth)).then(
+  const sheetsPromise = Promise.resolve(sheets || createSheetsClient(googleAuth));
+  const attendancePromise = sheetsPromise.then(
     (resolvedSheets) =>
       new AttendanceStore({
         sheets: resolvedSheets,
         spreadsheetId: config.spreadsheetId,
         sheetName: config.sheetName,
+      }),
+  );
+
+  const staffStorePromise = sheetsPromise.then(
+    (resolvedSheets) =>
+      new StaffStore({
+        sheets: resolvedSheets,
+        spreadsheetId: config.spreadsheetId,
+        sheetName: config.staffSheetName || "Master Staff Data",
+        fallbackConfig: config,
+        logger,
       }),
   );
 
@@ -323,14 +351,16 @@ function createApp({
     logger,
   });
 
-  const jobsPromise = attendancePromise.then((attendance) =>
-    createJobRunner({
-      config,
-      attendance,
-      sendMessage,
-      now,
-      logger,
-    }),
+  const jobsPromise = Promise.all([attendancePromise, staffStorePromise]).then(
+    ([attendance, staffStore]) =>
+      createJobRunner({
+        config,
+        attendance,
+        staffStore,
+        sendMessage,
+        now,
+        logger,
+      }),
   );
 
   function requireCronSecret(req, res, next) {
@@ -382,13 +412,13 @@ function createApp({
 
   app.post("/webhook", ...webhookMiddlewares, async (req, res) => {
     try {
-      const attendance = await attendancePromise;
+      const [attendance, staffStore] = await Promise.all([attendancePromise, staffStorePromise]);
       const from = String(req.body.From || "").trim();
       const body = String(req.body.Body || "").trim().slice(0, 1000);
       const messageSid = String(req.body.MessageSid || req.body.SmsMessageSid || "").trim();
       const lowerBody = body.toLowerCase();
       const current = zonedDateTime(now(), config.timezone);
-      const employee = employeeFromConfig(config, from);
+      const employee = (await staffStore.getEmployee(from)) || employeeFromConfig(config, from);
 
       res.type("text/xml");
 
@@ -400,6 +430,19 @@ function createApp({
               "You are not registered for attendance.",
               "",
               "Please contact admin to add your WhatsApp number.",
+            ].join("\n"),
+          ),
+        );
+      }
+
+      if (employee.isLeft) {
+        logger.warn(`Rejected inactive/left WhatsApp sender ${employee.name} (${maskPhone(from)})`);
+        return res.send(
+          twiml(
+            [
+              "Your attendance profile is inactive.",
+              "",
+              "Please contact admin if this is an error.",
             ].join("\n"),
           ),
         );
@@ -465,13 +508,87 @@ function createApp({
         return res.send(twiml(formatMonthlyReport(report, current.monthKey)));
       }
 
+      if (lowerBody === "refresh staff" || lowerBody === "reload staff") {
+        if (!config.admins.has(from)) {
+          return res.send(twiml("Only admins can refresh the staff list."));
+        }
+        staffStore.invalidate();
+        const freshData = await staffStore.getStaffData({ fresh: true });
+        const activeCount = Object.keys(freshData.employees).length;
+        const leftCount = freshData.employeesList.filter((e) => e.isLeft).length;
+        return res.send(
+          twiml(
+            [
+              "Staff list refreshed from Google Sheets!",
+              "",
+              `Active staff: ${activeCount}`,
+              `Inactive / Left staff: ${leftCount}`,
+              `Total in Master Sheet: ${freshData.employeesList.length}`,
+            ].join("\n"),
+          ),
+        );
+      }
+
+      if (lowerBody === "staff status" || lowerBody === "staff list") {
+        if (!config.admins.has(from)) {
+          return res.send(twiml("Only admins can view staff status."));
+        }
+        const freshData = await staffStore.getStaffData();
+        const byOffice = {};
+        let leftCount = 0;
+        for (const emp of freshData.employeesList) {
+          if (emp.isLeft) {
+            leftCount++;
+          } else {
+            const loc = emp.location || "Other";
+            byOffice[loc] = (byOffice[loc] || 0) + 1;
+          }
+        }
+        const officeLines = Object.entries(byOffice).map(([loc, count]) => `• ${loc}: ${count}`);
+        return res.send(
+          twiml(
+            [
+              "Staff Status Summary:",
+              `Total Active: ${Object.keys(freshData.employees).length}`,
+              `Inactive / Left: ${leftCount}`,
+              "",
+              "Active by Office:",
+              ...officeLines,
+            ].join("\n"),
+          ),
+        );
+      }
+
+      const staffLeftCommand = parseStaffLeftCommand(body);
+      if (staffLeftCommand) {
+        if (!config.admins.has(from)) {
+          return res.send(twiml("Only admins can update staff status."));
+        }
+        const result = await staffStore.markEmployeeLeft(staffLeftCommand.name, staffLeftCommand.leftDate);
+        if (!result.ok) {
+          return res.send(twiml(result.error || "Could not update staff status."));
+        }
+        return res.send(
+          twiml(
+            [
+              "Staff marked as Left in Google Sheets!",
+              "",
+              `Name: ${result.employee.name}`,
+              `Location: ${result.employee.location || "N/A"}`,
+              `Status: Left`,
+              `Left Date: ${result.employee.leftDate || "Today"}`,
+            ].join("\n"),
+          ),
+        );
+      }
+
       const adminCommand = parseAdminMarkCommand(body);
       if (adminCommand) {
         if (!config.admins.has(from)) {
           return res.send(twiml("Only admins can mark attendance for another employee."));
         }
 
-        const target = findEmployeeByName(config, adminCommand.employeeName);
+        const target = (await staffStore.findEmployeeByName(adminCommand.employeeName)) || findEmployeeByName(config, adminCommand.employeeName);
         if (!target) {
           return res.send(twiml(`Employee not found: ${adminCommand.employeeName}`));
         }
@@ -538,6 +655,7 @@ function createApp({
   });
 
   app.locals.attendancePromise = attendancePromise;
+  app.locals.staffStorePromise = staffStorePromise;
   app.locals.jobsPromise = jobsPromise;
 
   return app;
@@ -549,6 +667,7 @@ module.exports = {
   chunkMessage,
   maskPhone,
   parseAdminMarkCommand,
+  parseStaffLeftCommand,
   safeEqual,
   emptyTwiml,
   formatAttendanceMarked,

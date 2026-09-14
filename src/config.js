@@ -143,6 +143,7 @@ function loadConfig(env = process.env, cwd = process.cwd()) {
   return Object.freeze({
     spreadsheetId: requireString(raw.spreadsheetId, "spreadsheetId"),
     sheetName: requireString(raw.sheetName || "Attendance", "sheetName"),
+    staffSheetName: requireString(raw.staffSheetName || "Master Staff Data", "staffSheetName"),
     salarySheetName: requireString(raw.salarySheetName || raw.sheetName || "Attendance", "salarySheetName"),
     twilioFromNumber: requireWhatsAppNumber(raw.twilioFromNumber, "twilioFromNumber"),
     adminNumber,

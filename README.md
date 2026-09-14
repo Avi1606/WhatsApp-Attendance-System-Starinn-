@@ -68,8 +68,20 @@ Admins can also send:
 - `mark out <employee name>`
 - `mark in <employee name> DD/MM/YYYY`
 - `mark out <employee name> YYYY-MM-DD`
+- `refresh staff` - reload staff from Google Sheets `Master Staff Data` tab immediately
+- `staff status` - view active and left staff count and office breakdown
+- `staff left <employee name> [DD/MM/YYYY]` - mark an employee as Left directly in Google Sheets
 
-Employee names must be unique in `config.json`.
+Employee names can be managed directly in the `Master Staff Data` sheet without redeploying.
+
+## Dynamic Staff Management (`Master Staff Data`)
+
+The bot directly uses the **`Master Staff Data`** tab in Google Sheets as the single source of truth for employees.
+
+- **Add Staff:** Simply add a new row in `Master Staff Data` with Name, Phone, Office Location, Role, etc.
+- **Staff Left:** Either change `Status` to `Left` and add `Left Date`, or write `Left` in `Remarks`, or send `staff left <Name>` from WhatsApp.
+- **Zero Deployment:** Changes in Google Sheets take effect automatically (cached for 2 minutes, or immediately by sending `refresh staff` on WhatsApp).
+- **Auto-Protection for Ex-Staff:** Former employees who have left are automatically excluded from daily absent marking (`auto-absent`) and reminder messages. If an ex-employee messages the bot, they receive an inactive profile notice.
 
 ## Monthly report hold
 

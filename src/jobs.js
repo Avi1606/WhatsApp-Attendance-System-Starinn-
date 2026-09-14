@@ -86,11 +86,25 @@ function formatSalaryReport(row, cycle) {
   ].join("\n");
 }
 
-function createJobRunner({ config, attendance, sendMessage, now = () => new Date(), logger = console }) {
+function createJobRunner({ config, attendance, staffStore = null, sendMessage, now = () => new Date(), logger = console }) {
   const completedRuns = new Set();
 
   function context() {
     return zonedDateTime(now(), config.timezone);
+  }
+
+  async function getStaff(targetDateKey = null) {
+    if (staffStore) {
+      return staffStore.getStaffData({ fresh: true, targetDateKey });
+    }
+    return {
+      employees: config.employees,
+      allEmployees: config.employees,
+      employeeLocations: config.employeeLocations,
+      timeExemptEmployees: config.timeExemptEmployees,
+      employeeSalaries: config.employeeSalaries,
+      officeManagers: config.officeManagers,
+    };
   }
 
   function isWorkingDay(day) {
@@ -124,8 +138,9 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
   return Object.freeze({
     morning: () =>
       runOnce("morning", async (day) => {
-        const daily = await attendance.getDailyMap(config.employees, day.dateKey);
-        const messages = Object.entries(config.employees)
+        const staff = await getStaff(day.dateKey);
+        const daily = await attendance.getDailyMap(staff.employees, day.dateKey);
+        const messages = Object.entries(staff.employees)
           .filter(([id]) => !daily.get(id)?.inTime)
           .map(([to, name]) => ({
             to,
@@ -137,7 +152,8 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
 
     forgotOut: () =>
       runOnce("forgot-out", async (day) => {
-        const daily = await attendance.getDailyMap(config.employees, day.dateKey);
+        const staff = await getStaff(day.dateKey);
+        const daily = await attendance.getDailyMap(staff.employees, day.dateKey);
         const messages = [...daily.entries()]
           .filter(([, record]) => record.inTime && !record.outTime)
           .map(([to, record]) => ({
@@ -151,12 +167,13 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
     dailyReport: () =>
       runOnce("daily-report", async (day) => {
         const reportDateKey = shiftDateKey(day.dateKey, -1);
-        const daily = await attendance.getDailyMap(config.employees, reportDateKey);
+        const staff = await getStaff(reportDateKey);
+        const daily = await attendance.getDailyMap(staff.employees, reportDateKey);
         const present = [];
         const noOut = [];
         const absent = [];
 
-        for (const [id, name] of Object.entries(config.employees)) {
+        for (const [id, name] of Object.entries(staff.employees)) {
           const record = daily.get(id);
           if (!record) continue;
 
@@ -178,11 +195,14 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
     locationDailyReport: () =>
       runOnce("location-daily-report", async (day) => {
         const reportDateKey = shiftDateKey(day.dateKey, -1);
-        const reports = await attendance.getDailyOfficeReport(config.employees, config.employeeLocations, reportDateKey);
+        const staff = await getStaff(reportDateKey);
+        const reports = await attendance.getDailyOfficeReport(staff.employees, staff.employeeLocations, reportDateKey);
+        const effectiveOfficeManagers = { ...config.officeManagers, ...staff.officeManagers };
+        const effectiveConfig = { ...config, officeManagers: effectiveOfficeManagers };
         const messages = reports
-          .filter((report) => managerNumbersFor(config, report.office).length > 0)
+          .filter((report) => managerNumbersFor(effectiveConfig, report.office).length > 0)
           .flatMap((report) =>
-            managerNumbersFor(config, report.office).map((managerNumber) => ({
+            managerNumbersFor(effectiveConfig, report.office).map((managerNumber) => ({
               to: managerNumber,
               body: formatOfficeReport(report, { dateKey: reportDateKey }),
             })),
@@ -196,10 +216,11 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
         "salary-report",
         async (day) => {
           const cycle = salaryCycleFor(day.dateKey);
+          const staff = await getStaff(cycle.endDateKey);
           const reports = await attendance.getSalaryReport({
-            employees: config.employees,
-            employeeLocations: config.employeeLocations,
-            employeeSalaries: config.employeeSalaries,
+            employees: staff.employees,
+            employeeLocations: staff.employeeLocations,
+            employeeSalaries: { ...config.employeeSalaries, ...staff.employeeSalaries },
             employeeFines: config.employeeFines,
             salarySheetName: config.salarySheetName,
             startDateKey: cycle.startDateKey,
@@ -220,10 +241,13 @@ function createJobRunner({ config, attendance, sendMessage, now = () => new Date
     autoAbsent: () =>
       runOnce(
         "auto-absent",
-        async (day) => ({
-          markedAbsent: await attendance.markAbsent(config.employees, day.dateKey, config.employeeLocations),
-          sent: 0,
-        }),
+        async (day) => {
+          const staff = await getStaff(day.dateKey);
+          return {
+            markedAbsent: await attendance.markAbsent(staff.employees, day.dateKey, staff.employeeLocations),
+            sent: 0,
+          };
+        },
         { requireWorkingDay: false },
       ),
 
