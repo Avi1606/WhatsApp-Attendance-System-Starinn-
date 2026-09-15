@@ -3,7 +3,7 @@ const express = require("express");
 const twilio = require("twilio");
 const { google } = require("googleapis");
 const { AttendanceStore } = require("./attendance");
-const { StaffStore } = require("./staff");
+const { StaffStore, normalizeOfficeLocation, isExcludedLocation } = require("./staff");
 const { createJobRunner, formatOfficeReport } = require("./jobs");
 const { displayDate, normalizeDate, zonedDateTime, shiftDateKey } = require("./time");
 
@@ -217,6 +217,7 @@ function formatWelcome(employeeName, { isAdmin = false, isManager = false, repor
     lines.push("refresh staff");
     lines.push("staff status");
     lines.push("staff left <employee name> [DD/MM/YYYY]");
+    lines.push("send daily report [office] [today]");
   }
 
   return lines.join("\n");
@@ -306,6 +307,30 @@ function parseStaffLeftCommand(message) {
     name: match[1].trim(),
     leftDate: match[2] || null,
   };
+}
+
+function parseSendDailyReportCommand(message) {
+  const trimmed = String(message || "").trim();
+  const match = /^send\s+daily\s+reports?(?:\s+(.+))?$/i.exec(trimmed);
+  if (!match) return null;
+
+  let rest = String(match[1] || "").trim();
+  let isToday = false;
+
+  if (/\btoday$/i.test(rest)) {
+    isToday = true;
+    rest = rest.replace(/\btoday$/i, "").trim();
+  } else if (/\byesterday$/i.test(rest)) {
+    isToday = false;
+    rest = rest.replace(/\byesterday$/i, "").trim();
+  }
+
+  if (!rest || /^all$/i.test(rest)) {
+    return { allOffices: true, office: null, rawOffice: rest || "all", isToday };
+  }
+
+  const normalizedOffice = normalizeOfficeLocation(rest);
+  return { allOffices: false, office: normalizedOffice, rawOffice: rest, isToday };
 }
 
 async function createSheetsClient(googleAuth) {
@@ -623,6 +648,99 @@ function createApp({
         );
       }
 
+      const sendReportCmd = parseSendDailyReportCommand(body);
+      if (sendReportCmd) {
+        if (!config.admins.has(from)) {
+          return res.send(twiml("Only admins can trigger sending daily reports."));
+        }
+
+        const reportDateKey = sendReportCmd.isToday ? current.dateKey : shiftDateKey(current.dateKey, -1);
+        const staff = await staffStore.getStaffData({ fresh: true, targetDateKey: reportDateKey });
+        const reports = await attendance.getDailyOfficeReport(staff.employees, staff.employeeLocations, reportDateKey);
+
+        const availableOffices = Object.keys(config.officeManagers || {});
+        let targetOffices = [];
+
+        if (sendReportCmd.allOffices) {
+          targetOffices = availableOffices;
+        } else {
+          if (isExcludedLocation(sendReportCmd.office)) {
+            return res.send(twiml("Jim Corbett staff are kept in records only and excluded from daily reports."));
+          }
+
+          const matchedOffice = availableOffices.find(
+            (o) =>
+              o.toLowerCase() === sendReportCmd.office.toLowerCase() ||
+              o.toLowerCase().replace(/\s+office$/i, "") === sendReportCmd.office.toLowerCase().replace(/\s+office$/i, ""),
+          );
+
+          if (!matchedOffice) {
+            return res.send(
+              twiml(
+                [
+                  `Office "${sendReportCmd.rawOffice}" not found or has no managers configured.`,
+                  "",
+                  "Configured offices:",
+                  ...availableOffices.map((o) => `• ${o}`),
+                ].join("\n"),
+              ),
+            );
+          }
+
+          targetOffices = [matchedOffice];
+        }
+
+        if (targetOffices.length === 0) {
+          return res.send(twiml("No office managers are configured in config.officeManagers."));
+        }
+
+        const deliverySummary = [];
+        let totalSent = 0;
+        let totalFailed = 0;
+
+        for (const office of targetOffices) {
+          const managers = config.officeManagers[office] || [];
+          if (managers.length === 0) continue;
+
+          const report = reports.find((r) => r.office === office) || {
+            office,
+            absent: [],
+            noOut: [],
+            late: [],
+            halfDay: [],
+          };
+
+          const messageBody = formatOfficeReport(report, { dateKey: reportDateKey });
+          const managerStatuses = [];
+
+          for (const managerPhone of managers) {
+            try {
+              await sendMessage(managerPhone, messageBody);
+              managerStatuses.push(`${managerPhone} (Sent)`);
+              totalSent++;
+            } catch (err) {
+              const is63016 = /63016|outside.*window/i.test(String(err?.message || ""));
+              managerStatuses.push(`${managerPhone} (Failed: ${is63016 ? "24h window closed" : "Error"})`);
+              totalFailed++;
+            }
+          }
+
+          deliverySummary.push(`• *${office}*:\n  ${managerStatuses.join("\n  ")}`);
+        }
+
+        return res.send(
+          twiml(
+            [
+              `*Daily Reports Sent (${displayDate(reportDateKey)})*`,
+              "",
+              ...deliverySummary,
+              "",
+              `Summary: ${totalSent} sent${totalFailed > 0 ? `, ${totalFailed} failed` : ""}.`,
+            ].join("\n"),
+          ),
+        );
+      }
+
       const staffLeftCommand = parseStaffLeftCommand(body);
       if (staffLeftCommand) {
         if (!config.admins.has(from)) {
@@ -733,6 +851,7 @@ module.exports = {
   maskPhone,
   parseAdminMarkCommand,
   parseStaffLeftCommand,
+  parseSendDailyReportCommand,
   safeEqual,
   emptyTwiml,
   formatAttendanceMarked,

@@ -152,11 +152,32 @@ Office-wise senior reports use `officeManagers` from `config.json`:
 
 ```json
 "officeManagers": {
-  "Jasola Office": "whatsapp:+910000000000",
-  "Noida Office": "whatsapp:+910000000001",
-  "South Ex Office": "whatsapp:+910000000002"
+  "South Ex Office": [
+    "whatsapp:+919899242080"
+  ],
+  "OPC": [
+    "whatsapp:+917042926825"
+  ],
+  "Jasola Office": [
+    "whatsapp:+918780901324",
+    "whatsapp:+918010430524"
+  ],
+  "Noida Office": [
+    "whatsapp:+919899242080"
+  ]
 }
 ```
+
+### Daily Report WhatsApp Commands
+
+- **For Office Managers**:
+  - `daily report` / `office report`: Sends yesterday's daily report for their assigned office directly in WhatsApp.
+  - `daily report today`: Sends today's live daily report.
+- **For Admins Only**:
+  - `send daily report`: Automatically sends yesterday's daily report to **all** configured office managers.
+  - `send daily report <office>`: Automatically sends yesterday's daily report to that **particular office's managers only** (e.g. `send daily report South Ex`, `send daily report OPC`, `send daily report Jasola`, `send daily report Noida`).
+  - `send daily report [office] today`: Sends today's report to the specified office managers or all offices.
+  - Reports are sent **only to configured office managers and no one else**. Jim Corbett staff are kept in records only and excluded.
 
 If Twilio returns `Error 63016: Outside messaging window`, configure an approved WhatsApp content template SID for scheduled jobs:
 

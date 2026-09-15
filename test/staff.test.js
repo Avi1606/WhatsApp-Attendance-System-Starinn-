@@ -10,7 +10,7 @@ const {
   isLeftFromRemarks,
   extractLeftDate,
 } = require("../src/staff");
-const { createApp, parseStaffLeftCommand } = require("../src/app");
+const { createApp, parseStaffLeftCommand, parseSendDailyReportCommand } = require("../src/app");
 const { createJobRunner } = require("../src/jobs");
 
 function createMockSheets(rows) {
@@ -564,4 +564,176 @@ test("Webhook allows office manager to request daily report and isolates office"
 
   assert.equal(nonMgrRes.status, 200);
   assert.match(nonMgrRes.body, /Only office managers and admins can request the daily attendance report/);
+});
+
+test("parseSendDailyReportCommand parses all variants of send daily report commands", () => {
+  assert.deepEqual(parseSendDailyReportCommand("send daily report"), {
+    allOffices: true,
+    office: null,
+    rawOffice: "all",
+    isToday: false,
+  });
+  assert.deepEqual(parseSendDailyReportCommand("send daily reports"), {
+    allOffices: true,
+    office: null,
+    rawOffice: "all",
+    isToday: false,
+  });
+  assert.deepEqual(parseSendDailyReportCommand("send daily report all"), {
+    allOffices: true,
+    office: null,
+    rawOffice: "all",
+    isToday: false,
+  });
+  assert.deepEqual(parseSendDailyReportCommand("send daily report today"), {
+    allOffices: true,
+    office: null,
+    rawOffice: "all",
+    isToday: true,
+  });
+  assert.deepEqual(parseSendDailyReportCommand("send daily report South Ex"), {
+    allOffices: false,
+    office: "South Ex Office",
+    rawOffice: "South Ex",
+    isToday: false,
+  });
+  assert.deepEqual(parseSendDailyReportCommand("send daily report South Ex today"), {
+    allOffices: false,
+    office: "South Ex Office",
+    rawOffice: "South Ex",
+    isToday: true,
+  });
+  assert.deepEqual(parseSendDailyReportCommand("send daily report opc"), {
+    allOffices: false,
+    office: "OPC",
+    rawOffice: "opc",
+    isToday: false,
+  });
+  assert.deepEqual(parseSendDailyReportCommand("send daily report Noida Office"), {
+    allOffices: false,
+    office: "Noida Office",
+    rawOffice: "Noida Office",
+    isToday: false,
+  });
+  assert.deepEqual(parseSendDailyReportCommand("send daily report jasola"), {
+    allOffices: false,
+    office: "Jasola Office",
+    rawOffice: "jasola",
+    isToday: false,
+  });
+  assert.equal(parseSendDailyReportCommand("daily report"), null);
+  assert.equal(parseSendDailyReportCommand("hello"), null);
+});
+
+test("Webhook admin command send daily report sends to all or specific office managers", async () => {
+  const mockSheets = createMockSheets(SAMPLE_MASTER_ROWS);
+  const sentOutbound = [];
+  const mockTwilioLib = () => ({
+    messages: {
+      create: async (opts) => {
+        sentOutbound.push(opts);
+        return { sid: "SMtest" };
+      },
+    },
+  });
+
+  const config = {
+    spreadsheetId: "test-id",
+    sheetName: "Attendance",
+    staffSheetName: "Master Staff Data",
+    twilioFromNumber: "whatsapp:+17543423324",
+    adminNumber: "whatsapp:+918780901324",
+    admins: new Set(["whatsapp:+918780901324"]),
+    employees: {
+      "whatsapp:+919899242080": "Raju Mishra",
+      "whatsapp:+918780901324": "Jasola Manager",
+      "whatsapp:+917042926825": "OPC Manager",
+      "whatsapp:+917533848039": "Mukesh Bhatt",
+    },
+    employeeLocations: {
+      "whatsapp:+919899242080": "South Ex Office",
+      "whatsapp:+918780901324": "Jasola Office",
+      "whatsapp:+917042926825": "OPC",
+      "whatsapp:+917533848039": "South Ex Office",
+    },
+    timeExemptEmployees: new Set(),
+    officeManagers: {
+      "South Ex Office": ["whatsapp:+919899242080"],
+      "OPC": ["whatsapp:+917042926825"],
+      "Jasola Office": ["whatsapp:+918780901324"],
+    },
+    employeeSalaries: {},
+    employeeFines: {},
+    timezone: "Asia/Kolkata",
+    workingWeekdays: new Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]),
+    holidays: new Set(),
+    reportsEnabled: false,
+    twilioSid: "mock-twilio-sid",
+    twilioToken: "mock-twilio-token",
+    cronSecret: "secret",
+  };
+
+  const app = createApp({
+    config,
+    sheets: mockSheets,
+    twilioLib: mockTwilioLib,
+    now: () => new Date("2026-09-14T10:30:00Z"),
+    logger: { log() {}, warn() {}, error() {}, info() {} },
+    validateTwilioSignature: false,
+  });
+
+  // 1. Non-admin tries to send daily report -> blocked
+  const nonAdminRes = await dispatch(app, {
+    body: {
+      From: "whatsapp:+917533848039",
+      Body: "send daily report",
+    },
+  });
+  assert.equal(nonAdminRes.status, 200);
+  assert.match(nonAdminRes.body, /Only admins can trigger sending daily reports/);
+  assert.equal(sentOutbound.length, 0);
+
+  // 2. Admin sends to a specific office: South Ex
+  const southExRes = await dispatch(app, {
+    body: {
+      From: "whatsapp:+918780901324",
+      Body: "send daily report South Ex",
+    },
+  });
+  assert.equal(southExRes.status, 200);
+  assert.match(southExRes.body, /Daily Reports Sent/);
+  assert.match(southExRes.body, /South Ex Office/);
+  // Only South Ex manager got the outbound message
+  assert.equal(sentOutbound.length, 1);
+  assert.equal(sentOutbound[0].to, "whatsapp:+919899242080");
+  assert.match(sentOutbound[0].body, /Daily Attendance Report - South Ex Office/);
+
+  // 3. Admin sends to all offices
+  sentOutbound.length = 0;
+  const allRes = await dispatch(app, {
+    body: {
+      From: "whatsapp:+918780901324",
+      Body: "send daily report",
+    },
+  });
+  assert.equal(allRes.status, 200);
+  assert.match(allRes.body, /Daily Reports Sent/);
+  // Exactly 3 messages sent (one for each configured office manager)
+  assert.equal(sentOutbound.length, 3);
+  const recipients = sentOutbound.map((m) => m.to);
+  assert.equal(recipients.includes("whatsapp:+919899242080"), true);
+  assert.equal(recipients.includes("whatsapp:+917042926825"), true);
+  assert.equal(recipients.includes("whatsapp:+918780901324"), true);
+
+  // 4. Admin tries to send for Jim Corbett -> rejected
+  sentOutbound.length = 0;
+  const corbettRes = await dispatch(app, {
+    body: {
+      From: "whatsapp:+918780901324",
+      Body: "send daily report jim corbett",
+    },
+  });
+  assert.equal(corbettRes.status, 200);
+  assert.match(corbettRes.body, /Jim Corbett staff are kept in records only/);
+  assert.equal(sentOutbound.length, 0);
 });
