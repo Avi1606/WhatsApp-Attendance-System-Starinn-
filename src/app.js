@@ -4,8 +4,8 @@ const twilio = require("twilio");
 const { google } = require("googleapis");
 const { AttendanceStore } = require("./attendance");
 const { StaffStore } = require("./staff");
-const { createJobRunner } = require("./jobs");
-const { displayDate, normalizeDate, zonedDateTime } = require("./time");
+const { createJobRunner, formatOfficeReport } = require("./jobs");
+const { displayDate, normalizeDate, zonedDateTime, shiftDateKey } = require("./time");
 
 function maskPhone(phone = "") {
   return String(phone).replace(/(\+\d{2})\d+(\d{2})$/, "$1******$2");
@@ -180,13 +180,29 @@ function formatTime12(time24) {
   return `${hour}:${minute} ${suffix}`;
 }
 
-function formatWelcome(employeeName, { isAdmin = false, reportsEnabled = false } = {}) {
+function getManagedOffices(config, staffData, phone) {
+  const offices = [];
+  const allManagers = { ...config.officeManagers, ...staffData?.officeManagers };
+  for (const [office, managers] of Object.entries(allManagers)) {
+    const list = Array.isArray(managers) ? managers : [managers];
+    if (list.includes(phone)) {
+      offices.push(office);
+    }
+  }
+  return offices;
+}
+
+function formatWelcome(employeeName, { isAdmin = false, isManager = false, reportsEnabled = false } = {}) {
   const lines = [
     `Hello ${employeeName}!`,
     "",
     "Reply *in* for Office IN",
     "Reply *out* for Office OUT",
   ];
+
+  if (isManager || isAdmin) {
+    lines.push("Reply *daily report* for office attendance report");
+  }
 
   if (reportsEnabled) {
     lines.push("Reply *report* for monthly report");
@@ -448,11 +464,17 @@ function createApp({
         );
       }
 
+      const staffData = await staffStore.getStaffData();
+      const managedOffices = getManagedOffices(config, staffData, from);
+      const isManager = managedOffices.length > 0;
+      const isAdmin = config.admins.has(from);
+
       if (lowerBody === "hi" || lowerBody === "hello" || lowerBody === "help") {
         return res.send(
           twiml(
             formatWelcome(employee.name, {
-              isAdmin: config.admins.has(from),
+              isAdmin,
+              isManager,
               reportsEnabled: config.reportsEnabled,
             }),
           ),
@@ -491,7 +513,49 @@ function createApp({
         return res.send(emptyTwiml());
       }
 
+      if (
+        lowerBody === "daily report" ||
+        lowerBody === "office report" ||
+        lowerBody === "daily reports" ||
+        lowerBody === "daily report today" ||
+        lowerBody === "office report today"
+      ) {
+        if (!isAdmin && !isManager) {
+          return res.send(twiml("Only office managers and admins can request the daily attendance report."));
+        }
+
+        const isToday = lowerBody.includes("today");
+        const reportDateKey = isToday ? current.dateKey : shiftDateKey(current.dateKey, -1);
+        const staff = await staffStore.getStaffData({ fresh: true, targetDateKey: reportDateKey });
+        const reports = await attendance.getDailyOfficeReport(staff.employees, staff.employeeLocations, reportDateKey);
+
+        const targetReports = isAdmin
+          ? reports
+          : reports.filter((r) => managedOffices.includes(r.office));
+
+        if (targetReports.length === 0) {
+          return res.send(twiml(`No attendance data found for ${displayDate(reportDateKey)}.`));
+        }
+
+        const reportTexts = targetReports.map((r) => formatOfficeReport(r, { dateKey: reportDateKey }));
+        return res.send(twiml(reportTexts.join("\n\n---\n\n")));
+      }
+
       if (lowerBody === "report") {
+        if (isManager || isAdmin) {
+          const reportDateKey = shiftDateKey(current.dateKey, -1);
+          const staff = await staffStore.getStaffData({ fresh: true, targetDateKey: reportDateKey });
+          const reports = await attendance.getDailyOfficeReport(staff.employees, staff.employeeLocations, reportDateKey);
+          const targetReports = isAdmin
+            ? reports
+            : reports.filter((r) => managedOffices.includes(r.office));
+
+          if (targetReports.length > 0) {
+            const reportTexts = targetReports.map((r) => formatOfficeReport(r, { dateKey: reportDateKey }));
+            return res.send(twiml(reportTexts.join("\n\n---\n\n")));
+          }
+        }
+
         if (!config.reportsEnabled) {
           return res.send(
             twiml(
@@ -637,6 +701,7 @@ function createApp({
             "Send one of these:",
             "*in* - Office IN",
             "*out* - Office OUT",
+            (isAdmin || isManager) ? "*daily report* - Daily office report" : null,
             config.reportsEnabled ? "*report* - Monthly report" : null,
             "*help* - Show commands",
           ].filter(Boolean).join("\n"),

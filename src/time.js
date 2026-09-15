@@ -88,4 +88,10 @@ function displayDate(dateKey) {
   return `${day}/${month}/${year}`;
 }
 
-module.exports = { zonedDateTime, normalizeDate, normalizeMonthFirstDate, sheetDateMatches, displayDate };
+function shiftDateKey(dateKey, deltaDays) {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  return date.toISOString().slice(0, 10);
+}
+
+module.exports = { zonedDateTime, normalizeDate, normalizeMonthFirstDate, sheetDateMatches, displayDate, shiftDateKey };

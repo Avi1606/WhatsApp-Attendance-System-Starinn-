@@ -21,6 +21,10 @@ function normalizeOfficeLocation(value = "") {
   return raw;
 }
 
+function isExcludedLocation(value = "") {
+  return /corbett/i.test(String(value || ""));
+}
+
 function normalizeWhatsAppNumber(value = "") {
   const str = String(value || "").trim();
   if (!str) return "";
@@ -323,27 +327,20 @@ class StaffStore {
         }
       }
 
+      // Corbett staff are for in-data reference only: do not mark absent, send reports, or send reminders
+      if (isExcludedLocation(emp.location)) {
+        active = false;
+      }
+
       if (active) {
         activeEmployeesMap[emp.id] = emp.name;
       }
-
-      // Check for manager role
-      if (/manager/i.test(emp.role) && emp.location) {
-        if (!officeManagers[emp.location]) {
-          officeManagers[emp.location] = [];
-        }
-        if (!officeManagers[emp.location].includes(emp.id)) {
-          officeManagers[emp.location].push(emp.id);
-        }
-      }
     }
 
-    // Merge office managers with fallback config if defined
+    // Office managers must come strictly from configuration, not inferred from employee roles
     if (this.fallbackConfig?.officeManagers) {
       for (const [loc, managers] of Object.entries(this.fallbackConfig.officeManagers)) {
-        if (!officeManagers[loc] || officeManagers[loc].length === 0) {
-          officeManagers[loc] = Array.isArray(managers) ? managers : [managers];
-        }
+        officeManagers[loc] = Array.isArray(managers) ? [...managers] : [managers];
       }
     }
 
@@ -502,4 +499,5 @@ module.exports = {
   normalizeOfficeLocation,
   isLeftFromRemarks,
   extractLeftDate,
+  isExcludedLocation,
 };

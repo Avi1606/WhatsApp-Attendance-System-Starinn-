@@ -444,3 +444,124 @@ test("createJobRunner with StaffStore excludes left employees from autoAbsent an
   // Raju, Mukesh, Shekhar SHOULD be marked absent
   assert.equal(markedAbsentList.includes("whatsapp:+919899242080"), true);
 });
+
+test("StaffStore and AttendanceStore exclude Jim Corbett staff from active operations", async () => {
+  const { AttendanceStore } = require("../src/attendance");
+  const rowsWithCorbett = [
+    ...SAMPLE_MASTER_ROWS,
+    ["Devi Singh", "DEVI SINGH", "123456", "SBIN0001", "SBI", "Manager", "6397775099", "JIM CORBETT", "₹20,000.00", "", "Active", "", ""],
+  ];
+  const mockSheets = createMockSheets(rowsWithCorbett);
+  const store = new StaffStore({
+    sheets: mockSheets,
+    spreadsheetId: "test-id",
+    sheetName: "Master Staff Data",
+    fallbackConfig: {
+      officeManagers: {
+        "South Ex Office": ["whatsapp:+919899242080"],
+      },
+    },
+  });
+
+  const staffData = await store.getStaffData();
+  // Devi Singh is in allEmployees (data record)
+  assert.equal(staffData.allEmployees["whatsapp:+916397775099"], "Devi Singh");
+  // Devi Singh is NOT in active employees map (not counted / not reported)
+  assert.equal(staffData.employees["whatsapp:+916397775099"], undefined);
+
+  // Devi Singh role is 'Manager' but should NOT be in officeManagers
+  assert.equal(staffData.officeManagers["JIM CORBETT"], undefined);
+  assert.deepEqual(staffData.officeManagers["South Ex Office"], ["whatsapp:+919899242080"]);
+
+  // AttendanceStore markAbsent skips Corbett
+  const attMockSheets = createMockSheets([
+    ["Name", "Location", "Date", "In Time", "Out Time", "Status", "Total Hours", "Late/On Time", "Phone", "Remarks"],
+  ]);
+  const attStore = new AttendanceStore({
+    sheets: attMockSheets,
+    spreadsheetId: "test-id",
+    sheetName: "Attendance",
+  });
+
+  // Even if an employees object had Corbett passed, markAbsent skips it
+  const marked = await attStore.markAbsent(
+    { "whatsapp:+916397775099": "Devi Singh" },
+    "2026-09-14",
+    { "whatsapp:+916397775099": "JIM CORBETT" }
+  );
+  assert.equal(marked, 0);
+
+  // getDailyOfficeReport skips Corbett
+  const reports = await attStore.getDailyOfficeReport(
+    { "whatsapp:+916397775099": "Devi Singh", "whatsapp:+919899242080": "Raju Mishra" },
+    { "whatsapp:+916397775099": "JIM CORBETT", "whatsapp:+919899242080": "South Ex Office" },
+    "2026-09-14"
+  );
+  assert.equal(reports.some((r) => /corbett/i.test(r.office)), false);
+  assert.equal(reports.some((r) => r.office === "South Ex Office"), true);
+});
+
+test("Webhook allows office manager to request daily report and isolates office", async () => {
+  const mockSheets = createMockSheets(SAMPLE_MASTER_ROWS);
+  const mockTwilioLib = () => ({ messages: { create: async () => ({}) } });
+  const config = {
+    spreadsheetId: "test-id",
+    sheetName: "Attendance",
+    staffSheetName: "Master Staff Data",
+    twilioFromNumber: "whatsapp:+17543423324",
+    adminNumber: "whatsapp:+918780901324",
+    admins: new Set(["whatsapp:+918780901324"]),
+    employees: {
+      "whatsapp:+919899242080": "Raju Mishra",
+      "whatsapp:+917533848039": "Mukesh Bhatt",
+    },
+    employeeLocations: {
+      "whatsapp:+919899242080": "South Ex Office",
+      "whatsapp:+917533848039": "South Ex Office",
+    },
+    timeExemptEmployees: new Set(),
+    officeManagers: {
+      "South Ex Office": ["whatsapp:+919899242080"],
+    },
+    employeeSalaries: {},
+    employeeFines: {},
+    timezone: "Asia/Kolkata",
+    workingWeekdays: new Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]),
+    holidays: new Set(),
+    reportsEnabled: false,
+    twilioSid: "mock-twilio-sid",
+    twilioToken: "mock-twilio-token",
+    cronSecret: "secret",
+  };
+
+  const app = createApp({
+    config,
+    sheets: mockSheets,
+    twilioLib: mockTwilioLib,
+    now: () => new Date("2026-09-14T10:30:00Z"),
+    logger: { log() {}, warn() {}, error() {}, info() {} },
+    validateTwilioSignature: false,
+  });
+
+  // Manager Raju Mishra requests daily report
+  const res = await dispatch(app, {
+    body: {
+      From: "whatsapp:+919899242080",
+      Body: "daily report",
+    },
+  });
+
+  assert.equal(res.status, 200);
+  assert.match(res.body, /Daily Attendance Report - South Ex Office/);
+
+  // Non-manager Mukesh Bhatt requests daily report -> rejected
+  const nonMgrRes = await dispatch(app, {
+    body: {
+      From: "whatsapp:+917533848039",
+      Body: "daily report",
+    },
+  });
+
+  assert.equal(nonMgrRes.status, 200);
+  assert.match(nonMgrRes.body, /Only office managers and admins can request the daily attendance report/);
+});

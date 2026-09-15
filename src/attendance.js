@@ -419,6 +419,7 @@ class AttendanceStore {
 
     for (const [id, name] of Object.entries(employees)) {
       const office = employeeLocations[id] || "Unassigned";
+      if (/corbett/i.test(office)) continue;
       const bucket = officeBucket(office);
       const record = daily.get(id);
 
@@ -564,7 +565,9 @@ class AttendanceStore {
       const absentRows = [];
 
       for (const [id, name] of Object.entries(employees)) {
-        const employee = { id, name, location: employeeLocations[id] || "" };
+        const location = employeeLocations[id] || "";
+        if (/corbett/i.test(location)) continue;
+        const employee = { id, name, location };
         if (this.findAttendanceRow(rows, employee, dateKey) === -1) {
           absentRows.push([name, employee.location, dateKey, "", "", statusFor("", ""), "", "", id, ""]);
         }
