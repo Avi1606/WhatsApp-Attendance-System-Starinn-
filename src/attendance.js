@@ -2,7 +2,19 @@
 
 const { normalizeDate, normalizeMonthFirstDate, sheetDateMatches } = require("./time");
 
-const HEADER = ["Name", "Office Location", "Date", "IN", "OUT", "Status", "Remarks", "Late", "Employee ID", "Last Message SID"];
+const HEADER = [
+  "Name",
+  "Office Location",
+  "Date",
+  "Day of Week",
+  "IN",
+  "OUT",
+  "Status",
+  "Remarks",
+  "Late",
+  "Employee ID",
+  "Last Message SID",
+];
 const ACTIONS = new Set(["IN", "OUT"]);
 const LATE_IN_AFTER = "10:15";
 const HALF_DAY_IN_AFTER = "11:00";
@@ -94,6 +106,107 @@ function attendanceNotesFor(employee, inTime, outTime = "") {
   return { remarks, late: lateFor(inTime, remarks) };
 }
 
+function colLetter(count) {
+  let s = "";
+  let n = count;
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - m) / 26);
+  }
+  return s || "K";
+}
+
+function resolveAttendanceCols(rows) {
+  const headers = headerMap(rows);
+  const hasHeaders = isHeader(rows[0]);
+
+  let nameCol = hasHeaders ? firstHeaderIndex(headers, ["Name", "Employee Name", "Staff Name"]) : 0;
+  let locationCol = hasHeaders ? firstHeaderIndex(headers, ["Office Location", "Location", "Office"]) : 1;
+  let dateCol = hasHeaders ? firstHeaderIndex(headers, ["Date"]) : 2;
+  let dayOfWeekCol = hasHeaders ? firstHeaderIndex(headers, ["Day of Week", "Day", "Weekday"]) : -1;
+  let inCol = hasHeaders ? firstHeaderIndex(headers, ["IN", "In Time", "Time In"]) : -1;
+  let outCol = hasHeaders ? firstHeaderIndex(headers, ["OUT", "Out Time", "Time Out"]) : -1;
+  let statusCol = hasHeaders ? firstHeaderIndex(headers, ["Status"]) : -1;
+  let remarksCol = hasHeaders ? firstHeaderIndex(headers, ["Remarks", "Notes"]) : -1;
+  let lateCol = hasHeaders ? firstHeaderIndex(headers, ["Late", "Late/On Time"]) : -1;
+  let employeeIdCol = hasHeaders ? firstHeaderIndex(headers, ["Employee ID", "WhatsApp", "Whatsapp", "Phone", "Mobile", "Mobile Number"]) : -1;
+  let messageSidCol = hasHeaders ? firstHeaderIndex(headers, ["Last Message SID", "Message SID", "SID"]) : -1;
+
+  if (nameCol === -1) nameCol = 0;
+  if (locationCol === -1) locationCol = 1;
+  if (dateCol === -1) dateCol = 2;
+
+  if (dayOfWeekCol !== -1) {
+    if (inCol === -1) inCol = 4;
+    if (outCol === -1) outCol = 5;
+    if (statusCol === -1) statusCol = 6;
+    if (remarksCol === -1) remarksCol = 7;
+    if (lateCol === -1) lateCol = 8;
+    if (employeeIdCol === -1) employeeIdCol = 9;
+    if (messageSidCol === -1) messageSidCol = 10;
+  } else {
+    if (inCol === -1) inCol = 3;
+    if (outCol === -1) outCol = 4;
+    if (statusCol === -1) statusCol = 5;
+    if (remarksCol === -1) remarksCol = 6;
+    if (lateCol === -1) lateCol = 7;
+    if (employeeIdCol === -1) employeeIdCol = 8;
+    if (messageSidCol === -1) messageSidCol = 9;
+  }
+
+  const headerLength = rows[0]?.length || (dayOfWeekCol !== -1 ? 11 : 10);
+
+  return {
+    headers,
+    nameCol,
+    locationCol,
+    dateCol,
+    dayOfWeekCol,
+    inCol,
+    outCol,
+    statusCol,
+    remarksCol,
+    lateCol,
+    employeeIdCol,
+    messageSidCol,
+    headerLength,
+  };
+}
+
+function buildAttendanceRow({
+  cols,
+  employee,
+  dateKey,
+  inTime = "",
+  outTime = "",
+  status = "",
+  remarks = "",
+  late = "",
+  messageSid = "",
+  sheetRowNumber = null,
+}) {
+  const effectiveStatus = status || statusFor(inTime, outTime);
+  const length = Math.max(cols.headerLength, cols.dayOfWeekCol !== -1 ? 11 : 10);
+  const row = new Array(length).fill("");
+
+  if (cols.nameCol !== -1) row[cols.nameCol] = employee.name;
+  if (cols.locationCol !== -1) row[cols.locationCol] = employee.location || "";
+  if (cols.dateCol !== -1) row[cols.dateCol] = dateKey;
+  if (cols.dayOfWeekCol !== -1) {
+    row[cols.dayOfWeekCol] = sheetRowNumber !== null ? `=IF(C${sheetRowNumber}="","",TEXT(C${sheetRowNumber},"DDDD"))` : "";
+  }
+  if (cols.inCol !== -1) row[cols.inCol] = inTime;
+  if (cols.outCol !== -1) row[cols.outCol] = outTime;
+  if (cols.statusCol !== -1) row[cols.statusCol] = effectiveStatus;
+  if (cols.remarksCol !== -1) row[cols.remarksCol] = remarks;
+  if (cols.lateCol !== -1) row[cols.lateCol] = late;
+  if (cols.employeeIdCol !== -1) row[cols.employeeIdCol] = employee.id;
+  if (cols.messageSidCol !== -1) row[cols.messageSidCol] = messageSid;
+
+  return row;
+}
+
 class AttendanceStore {
   constructor({ sheets, spreadsheetId, sheetName, cacheTtlMs = 5000 }) {
     this.sheets = sheets;
@@ -130,15 +243,15 @@ class AttendanceStore {
     if (ensureAttendanceHeader && rows.length === 0) {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A1:J1`,
+        range: `${sheetName}!A1:${colLetter(HEADER.length)}1`,
         valueInputOption: "RAW",
         requestBody: { values: [HEADER] },
       });
       rows.push([...HEADER]);
-    } else if (ensureAttendanceHeader && isHeader(rows[0]) && rows[0].length < HEADER.length) {
+    } else if (ensureAttendanceHeader && isHeader(rows[0]) && rows[0].length < 10) {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A1:J1`,
+        range: `${sheetName}!A1:${colLetter(HEADER.length)}1`,
         valueInputOption: "RAW",
         requestBody: { values: [HEADER] },
       });
@@ -153,48 +266,61 @@ class AttendanceStore {
     return isHeader(rows[0]) ? 1 : 0;
   }
 
-  rowMatchesEmployee(row, employee) {
-    const rowEmployeeId = normalizeText(row[8]);
+  rowMatchesEmployee(row, employee, cols = null) {
+    const idCol = cols ? cols.employeeIdCol : (row.length >= 11 ? 9 : 8);
+    const nameCol = cols ? cols.nameCol : 0;
+    const rowEmployeeId = idCol !== -1 ? normalizeText(row[idCol]) : "";
     const employeeId = normalizeText(employee.id);
-    if (rowEmployeeId && employeeId) return rowEmployeeId === employeeId;
+    if (rowEmployeeId && employeeId && rowEmployeeId === employeeId) return true;
 
-    return normalizeText(row[0]) === normalizeText(employee.name);
+    const rowName = normalizeText(row[nameCol]);
+    return rowName === normalizeText(employee.name);
   }
 
-  findAttendanceRow(rows, employee, dateKey) {
+  findAttendanceRow(rows, employee, dateKey, cols = null) {
+    const c = cols || resolveAttendanceCols(rows);
     let fallbackIndex = -1;
 
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
+      const row = rows[index];
       if (
-        this.rowMatchesEmployee(rows[index], employee) &&
-        sheetDateMatches(rows[index][2], dateKey)
+        this.rowMatchesEmployee(row, employee, c) &&
+        sheetDateMatches(row[c.dateCol], dateKey)
       ) {
         if (fallbackIndex === -1) fallbackIndex = index;
-        if (rows[index][3] || rows[index][4]) return index;
+        const inVal = c.inCol !== -1 ? row[c.inCol] : "";
+        const outVal = c.outCol !== -1 ? row[c.outCol] : "";
+        if (inVal || outVal) return index;
       }
     }
 
     return fallbackIndex;
   }
 
-  findLatestOpenInRow(rows, employee) {
+  findLatestOpenInRow(rows, employee, cols = null) {
+    const c = cols || resolveAttendanceCols(rows);
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       const row = rows[index];
-      if (this.rowMatchesEmployee(row, employee) && row[3] && !row[4]) {
+      const inVal = c.inCol !== -1 ? row[c.inCol] : "";
+      const outVal = c.outCol !== -1 ? row[c.outCol] : "";
+      if (this.rowMatchesEmployee(row, employee, c) && inVal && !outVal) {
         return index;
       }
     }
     return -1;
   }
 
-  findOpenInRowForDate(rows, employee, dateKey) {
+  findOpenInRowForDate(rows, employee, dateKey, cols = null) {
+    const c = cols || resolveAttendanceCols(rows);
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       const row = rows[index];
+      const inVal = c.inCol !== -1 ? row[c.inCol] : "";
+      const outVal = c.outCol !== -1 ? row[c.outCol] : "";
       if (
-        this.rowMatchesEmployee(row, employee) &&
-        sheetDateMatches(row[2], dateKey) &&
-        row[3] &&
-        !row[4]
+        this.rowMatchesEmployee(row, employee, c) &&
+        sheetDateMatches(row[c.dateCol], dateKey) &&
+        inVal &&
+        !outVal
       ) {
         return index;
       }
@@ -239,10 +365,11 @@ class AttendanceStore {
       },
     });
 
+    const maxCols = Math.max(...rowsToInsert.map((r) => r.length), HEADER.length);
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
-      range: `${this.sheetName}!A2:J${1 + rowsToInsert.length}`,
-      valueInputOption: "RAW",
+      range: `${this.sheetName}!A2:${colLetter(maxCols)}${1 + rowsToInsert.length}`,
+      valueInputOption: "USER_ENTERED",
       requestBody: { values: rowsToInsert },
     });
   }
@@ -259,38 +386,50 @@ class AttendanceStore {
 
     return this.serialize(async () => {
       const rows = await this.getRows({ fresh: true });
+      const cols = resolveAttendanceCols(rows);
       const start = this.dataStart(rows);
 
-      if (messageSid) {
-        const duplicateIndex = rows.findIndex((row, index) => index >= start && row[9] === messageSid);
+      if (messageSid && cols.messageSidCol !== -1) {
+        const duplicateIndex = rows.findIndex((row, index) => index >= start && row[cols.messageSidCol] === messageSid);
         if (duplicateIndex !== -1) {
           const duplicateRow = rows[duplicateIndex];
           return {
             ok: false,
             reason: "already_processed",
-            time: action === "IN" ? duplicateRow[3] : duplicateRow[4],
+            time: action === "IN" ? (cols.inCol !== -1 ? duplicateRow[cols.inCol] : "") : (cols.outCol !== -1 ? duplicateRow[cols.outCol] : ""),
           };
         }
       }
 
-      let rowIndex = this.findAttendanceRow(rows, employee, dateKey);
+      let rowIndex = this.findAttendanceRow(rows, employee, dateKey, cols);
       if (rowIndex === -1 && action === "OUT") {
-        rowIndex = this.findOpenInRowForDate(rows, employee, dateKey);
+        rowIndex = this.findOpenInRowForDate(rows, employee, dateKey, cols);
       }
 
       if (rowIndex === -1) {
         if (action === "OUT") return { ok: false, reason: "out_before_in" };
 
         const notes = attendanceNotesFor(employee, time);
-        const row = [employee.name, employee.location || "", dateKey, time, "", statusFor(time, ""), notes.remarks, notes.late, employee.id, messageSid];
+        const row = buildAttendanceRow({
+          cols,
+          employee,
+          dateKey,
+          inTime: time,
+          outTime: "",
+          status: statusFor(time, ""),
+          remarks: notes.remarks,
+          late: notes.late,
+          messageSid,
+          sheetRowNumber: 2,
+        });
         await this.insertRowsAtTop([row]);
         this.invalidate();
         return { ok: true, action };
       }
 
       const existing = rows[rowIndex];
-      const inTime = existing[3] || "";
-      const outTime = existing[4] || "";
+      const inTime = cols.inCol !== -1 ? existing[cols.inCol] || "" : "";
+      const outTime = cols.outCol !== -1 ? existing[cols.outCol] || "" : "";
 
       if (action === "IN" && inTime) {
         return { ok: false, reason: "already_marked", action, time: inTime };
@@ -303,23 +442,28 @@ class AttendanceStore {
       const newIn = action === "IN" ? time : inTime;
       const newOut = action === "OUT" ? time : outTime;
       const notes = attendanceNotesFor(employee, newIn, newOut);
-      const updated = [
-        employee.name,
-        employee.location || existing[1] || "",
-        dateKey,
-        newIn,
-        newOut,
-        statusFor(newIn, newOut),
-        notes.remarks,
-        notes.late,
-        employee.id,
-        messageSid,
-      ];
+      const rowNumber = rowIndex + 1;
+
+      const updated = [...existing];
+      while (updated.length < cols.headerLength) updated.push("");
+      if (cols.nameCol !== -1) updated[cols.nameCol] = employee.name;
+      if (cols.locationCol !== -1) updated[cols.locationCol] = employee.location || existing[cols.locationCol] || "";
+      if (cols.dateCol !== -1) updated[cols.dateCol] = dateKey;
+      if (cols.dayOfWeekCol !== -1) {
+        updated[cols.dayOfWeekCol] = existing[cols.dayOfWeekCol] || `=IF(C${rowNumber}="","",TEXT(C${rowNumber},"DDDD"))`;
+      }
+      if (cols.inCol !== -1) updated[cols.inCol] = newIn;
+      if (cols.outCol !== -1) updated[cols.outCol] = newOut;
+      if (cols.statusCol !== -1) updated[cols.statusCol] = statusFor(newIn, newOut);
+      if (cols.remarksCol !== -1) updated[cols.remarksCol] = notes.remarks;
+      if (cols.lateCol !== -1) updated[cols.lateCol] = notes.late;
+      if (cols.employeeIdCol !== -1) updated[cols.employeeIdCol] = employee.id;
+      if (cols.messageSidCol !== -1) updated[cols.messageSidCol] = messageSid;
 
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A${rowIndex + 1}:J${rowIndex + 1}`,
-        valueInputOption: "RAW",
+        range: `${this.sheetName}!A${rowNumber}:${colLetter(updated.length)}${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
         requestBody: { values: [updated] },
       });
       this.invalidate();
@@ -329,16 +473,19 @@ class AttendanceStore {
 
   async getStatus(employee, dateKey) {
     const rows = await this.getRows();
-    const index = this.findAttendanceRow(rows, employee, dateKey);
+    const cols = resolveAttendanceCols(rows);
+    const index = this.findAttendanceRow(rows, employee, dateKey, cols);
     if (index === -1) return { exists: false, found: false };
 
     const row = rows[index];
+    const inTime = cols.inCol !== -1 ? row[cols.inCol] || "" : "";
+    const outTime = cols.outCol !== -1 ? row[cols.outCol] || "" : "";
     return {
       exists: true,
       found: true,
-      inTime: row[3] || "",
-      outTime: row[4] || "",
-      status: statusFor(row[3] || "", row[4] || ""),
+      inTime,
+      outTime,
+      status: (cols.statusCol !== -1 && row[cols.statusCol]) || statusFor(inTime, outTime),
     };
   }
 
@@ -346,6 +493,7 @@ class AttendanceStore {
     if (!/^\d{4}-\d{2}$/.test(monthKey)) throw new Error(`Invalid month: ${monthKey}`);
 
     const rows = await this.getRows();
+    const cols = resolveAttendanceCols(rows);
     let present = 0;
     let absent = 0;
     let noOut = 0;
@@ -353,18 +501,23 @@ class AttendanceStore {
 
     for (let index = this.dataStart(rows); index < rows.length; index += 1) {
       const row = rows[index];
-      const candidateDateKey = normalizeMonthFirstDate(row[2]) || normalizeDate(row[2]);
-      if (!this.rowMatchesEmployee(row, employee) || !candidateDateKey?.startsWith(monthKey)) continue;
+      const dateVal = cols.dateCol !== -1 ? row[cols.dateCol] : "";
+      const candidateDateKey = normalizeMonthFirstDate(dateVal) || normalizeDate(dateVal);
+      if (!this.rowMatchesEmployee(row, employee, cols) || !candidateDateKey?.startsWith(monthKey)) continue;
 
-      if (row[3] && row[4]) present += 1;
-      else if (row[3]) noOut += 1;
+      const inTime = cols.inCol !== -1 ? row[cols.inCol] || "" : "";
+      const outTime = cols.outCol !== -1 ? row[cols.outCol] || "" : "";
+      const status = (cols.statusCol !== -1 && row[cols.statusCol]) || statusFor(inTime, outTime);
+
+      if (inTime && outTime) present += 1;
+      else if (inTime) noOut += 1;
       else absent += 1;
 
       reportRows.push({
         dateKey: candidateDateKey,
-        inTime: row[3] || "",
-        outTime: row[4] || "",
-        status: statusFor(row[3] || "", row[4] || ""),
+        inTime,
+        outTime,
+        status,
       });
     }
 
@@ -384,21 +537,29 @@ class AttendanceStore {
 
   async getDailyMap(employees, dateKey) {
     const rows = await this.getRows();
+    const cols = resolveAttendanceCols(rows);
     const result = new Map();
 
     for (const [id, name] of Object.entries(employees)) {
       const employee = { id, name };
-      const index = this.findAttendanceRow(rows, employee, dateKey);
+      const index = this.findAttendanceRow(rows, employee, dateKey, cols);
       if (index !== -1) {
         const row = rows[index];
+        const inTime = cols.inCol !== -1 ? row[cols.inCol] || "" : "";
+        const outTime = cols.outCol !== -1 ? row[cols.outCol] || "" : "";
+        const status = (cols.statusCol !== -1 && row[cols.statusCol]) || statusFor(inTime, outTime);
+        const remarks = cols.remarksCol !== -1 ? row[cols.remarksCol] || "" : "";
+        const late = cols.lateCol !== -1 ? row[cols.lateCol] || "" : "";
+        const officeLocation = cols.locationCol !== -1 ? row[cols.locationCol] || "" : "";
+
         result.set(id, {
           name,
-          inTime: row[3] || "",
-          outTime: row[4] || "",
-          status: statusFor(row[3] || "", row[4] || ""),
-          remarks: row[6] || "",
-          late: row[7] || "",
-          officeLocation: row[1] || "",
+          inTime,
+          outTime,
+          status,
+          remarks,
+          late,
+          officeLocation,
         });
       }
     }
@@ -449,6 +610,7 @@ class AttendanceStore {
       : attendanceRows;
     const attendanceHeaders = headerMap(attendanceRows);
     const salaryHeaders = headerMap(salaryRows);
+    const attendanceCols = resolveAttendanceCols(attendanceRows);
     const hasSalaryColumns =
       firstHeaderIndex(salaryHeaders, ["Present Days", "Half Days", "Absent Days", "Per Day Salary", "Maximum Allowed Leaves", "Final Payout"]) !== -1;
     const cycleDays = Math.floor((new Date(`${endDateKey}T00:00:00Z`) - new Date(`${startDateKey}T00:00:00Z`)) / 86400000) + 1;
@@ -488,8 +650,9 @@ class AttendanceStore {
       if (!foundSalaryRow) {
         for (let index = this.dataStart(attendanceRows); index < attendanceRows.length; index += 1) {
           const row = attendanceRows[index];
-          const candidateDateKey = normalizeMonthFirstDate(row[2]) || normalizeDate(row[2]);
-          if (!this.rowMatchesEmployee(row, { id, name }) || !candidateDateKey) continue;
+          const dateVal = attendanceCols.dateCol !== -1 ? row[attendanceCols.dateCol] : "";
+          const candidateDateKey = normalizeMonthFirstDate(dateVal) || normalizeDate(dateVal);
+          if (!this.rowMatchesEmployee(row, { id, name }, attendanceCols) || !candidateDateKey) continue;
           if (candidateDateKey < startDateKey || candidateDateKey > endDateKey) continue;
 
           maxLeaves = Math.max(
@@ -501,10 +664,10 @@ class AttendanceStore {
             configuredPerDaySalary || moneyNumber(cellByHeaders(row, attendanceHeaders, ["Per Day Salary", "Per-Day Salary", "Daily Salary"]));
           fine = Math.max(fine, moneyNumber(cellByHeaders(row, attendanceHeaders, ["Fine", "Penalty"])));
 
-          const inTime = row[3] || "";
-          const outTime = row[4] || "";
-          const remarks = row[6] || "";
-          const late = row[7] || "";
+          const inTime = attendanceCols.inCol !== -1 ? row[attendanceCols.inCol] || "" : "";
+          const outTime = attendanceCols.outCol !== -1 ? row[attendanceCols.outCol] || "" : "";
+          const remarks = attendanceCols.remarksCol !== -1 ? row[attendanceCols.remarksCol] || "" : "";
+          const late = attendanceCols.lateCol !== -1 ? row[attendanceCols.lateCol] || "" : "";
 
           if (!inTime) absentDays += 1;
           else if (!outTime) noOutDays += 1;
@@ -516,12 +679,13 @@ class AttendanceStore {
       } else if (!noOutDays) {
         for (let index = this.dataStart(attendanceRows); index < attendanceRows.length; index += 1) {
           const row = attendanceRows[index];
-          const candidateDateKey = normalizeMonthFirstDate(row[2]) || normalizeDate(row[2]);
-          if (!this.rowMatchesEmployee(row, { id, name }) || !candidateDateKey) continue;
+          const dateVal = attendanceCols.dateCol !== -1 ? row[attendanceCols.dateCol] : "";
+          const candidateDateKey = normalizeMonthFirstDate(dateVal) || normalizeDate(dateVal);
+          if (!this.rowMatchesEmployee(row, { id, name }, attendanceCols) || !candidateDateKey) continue;
           if (candidateDateKey < startDateKey || candidateDateKey > endDateKey) continue;
 
-          const inTime = row[3] || "";
-          const outTime = row[4] || "";
+          const inTime = attendanceCols.inCol !== -1 ? row[attendanceCols.inCol] || "" : "";
+          const outTime = attendanceCols.outCol !== -1 ? row[attendanceCols.outCol] || "" : "";
           if (inTime && !outTime) noOutDays += 1;
         }
       }
@@ -562,18 +726,37 @@ class AttendanceStore {
   async markAbsent(employees, dateKey, employeeLocations = {}) {
     return this.serialize(async () => {
       const rows = await this.getRows({ fresh: true });
+      const cols = resolveAttendanceCols(rows);
       const absentRows = [];
 
       for (const [id, name] of Object.entries(employees)) {
         const location = employeeLocations[id] || "";
         if (/corbett/i.test(location)) continue;
         const employee = { id, name, location };
-        if (this.findAttendanceRow(rows, employee, dateKey) === -1) {
-          absentRows.push([name, employee.location, dateKey, "", "", statusFor("", ""), "", "", id, ""]);
+        if (this.findAttendanceRow(rows, employee, dateKey, cols) === -1) {
+          absentRows.push(
+            buildAttendanceRow({
+              cols,
+              employee,
+              dateKey,
+              inTime: "",
+              outTime: "",
+              status: "Absent",
+              remarks: "",
+              late: "",
+              messageSid: "",
+              sheetRowNumber: null,
+            }),
+          );
         }
       }
 
       if (absentRows.length) {
+        if (cols.dayOfWeekCol !== -1) {
+          absentRows.forEach((r, idx) => {
+            r[cols.dayOfWeekCol] = `=IF(C${idx + 2}="","",TEXT(C${idx + 2},"DDDD"))`;
+          });
+        }
         await this.insertRowsAtTop(absentRows);
         this.invalidate();
       }
@@ -583,4 +766,13 @@ class AttendanceStore {
   }
 }
 
-module.exports = { AttendanceStore, statusFor, remarksFor, lateFor, attendanceNotesFor, HEADER };
+module.exports = {
+  AttendanceStore,
+  statusFor,
+  remarksFor,
+  lateFor,
+  attendanceNotesFor,
+  resolveAttendanceCols,
+  buildAttendanceRow,
+  HEADER,
+};
